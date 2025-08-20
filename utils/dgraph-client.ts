@@ -18,9 +18,21 @@ export type DgraphResponse<T> = {
   error?: DgraphError
 }
 
+// Proxy response type
+export type ProxyResponse<T> = {
+  status: number
+  statusText: string
+  data: T
+  error?: {
+    message: string
+    code: string
+  }
+}
+
 export class DgraphClient {
   private connection: Connection
   private headers: Record<string, string> = {}
+  private useProxy: boolean = true
   
   constructor(connection: Connection) {
     this.connection = connection
@@ -49,17 +61,34 @@ export class DgraphClient {
     }
   }
   
+  // Get the base URL for API requests (using proxy or direct)
+  private getBaseUrl(endpoint: string): string {
+    if (this.useProxy) {
+      // Use the server proxy to avoid CORS issues
+      return `/api/dgraph/${endpoint}?url=${encodeURIComponent(this.connection.url)}`
+    } else {
+      // Direct connection (may have CORS issues)
+      return `${this.connection.url}/${endpoint}`
+    }
+  }
+  
   // Test connection
   async testConnection(): Promise<boolean> {
     try {
       // First try the health endpoint
       try {
-        const healthResponse = await fetch(`${this.connection.url}/health`, {
+        const healthUrl = this.getBaseUrl('health');
+        const healthResponse = await fetch(healthUrl, {
           method: 'GET',
           headers: this.headers
         });
         
-        if (healthResponse.ok) {
+        if (this.useProxy) {
+          const proxyData = await healthResponse.json() as ProxyResponse<any>;
+          if (proxyData.status >= 200 && proxyData.status < 300) {
+            return true;
+          }
+        } else if (healthResponse.ok) {
           return true;
         }
       } catch (healthError) {
@@ -68,8 +97,9 @@ export class DgraphClient {
       
       // If health endpoint fails, try the admin endpoint with a simple query
       const query = `{ __typename }`;
+      const adminUrl = this.getBaseUrl('admin');
       
-      const adminResponse = await fetch(`${this.connection.url}/admin`, {
+      const adminResponse = await fetch(adminUrl, {
         method: 'POST',
         headers: {
           ...this.headers,
@@ -77,6 +107,11 @@ export class DgraphClient {
         },
         body: JSON.stringify({ query })
       });
+      
+      if (this.useProxy) {
+        const proxyData = await adminResponse.json() as ProxyResponse<any>;
+        return proxyData.status >= 200 && proxyData.status < 300;
+      }
       
       return adminResponse.ok;
     } catch (error) {
@@ -97,7 +132,8 @@ export class DgraphClient {
         }
       `;
       
-      const response = await fetch(`${this.connection.url}/admin`, {
+      const url = this.getBaseUrl('admin');
+      const response = await fetch(url, {
         method: 'POST',
         headers: {
           ...this.headers,
@@ -106,31 +142,69 @@ export class DgraphClient {
         body: JSON.stringify({ query })
       });
       
-      if (!response.ok) {
-        const errorText = await response.text();
-        return {
-          error: {
-            message: 'Failed to fetch schema',
-            details: errorText
-          }
-        };
+      if (this.useProxy) {
+        const proxyResponse = await response.json() as ProxyResponse<any>;
+        
+        if (proxyResponse.error) {
+          return {
+            error: {
+              message: 'Failed to fetch schema',
+              details: proxyResponse.error.message
+            }
+          };
+        }
+        
+        if (proxyResponse.status >= 400) {
+          return {
+            error: {
+              message: 'Failed to fetch schema',
+              details: `Status: ${proxyResponse.status} ${proxyResponse.statusText}`
+            }
+          };
+        }
+        
+        const data = proxyResponse.data;
+        
+        // Check for GraphQL errors
+        if (data.errors) {
+          return {
+            error: {
+              message: 'Failed to fetch schema',
+              details: JSON.stringify(data.errors)
+            }
+          };
+        }
+        
+        // Extract schema from the response
+        const schema = data.data?.getGQLSchema?.schema || '';
+        return { data: { schema } };
+      } else {
+        if (!response.ok) {
+          const errorText = await response.text();
+          return {
+            error: {
+              message: 'Failed to fetch schema',
+              details: errorText
+            }
+          };
+        }
+        
+        const data = await response.json();
+        
+        // Check for GraphQL errors
+        if (data.errors) {
+          return {
+            error: {
+              message: 'Failed to fetch schema',
+              details: JSON.stringify(data.errors)
+            }
+          };
+        }
+        
+        // Extract schema from the response
+        const schema = data.data?.getGQLSchema?.schema || '';
+        return { data: { schema } };
       }
-      
-      const data = await response.json();
-      
-      // Check for GraphQL errors
-      if (data.errors) {
-        return {
-          error: {
-            message: 'Failed to fetch schema',
-            details: JSON.stringify(data.errors)
-          }
-        };
-      }
-      
-      // Extract schema from the response
-      const schema = data.data?.getGQLSchema?.schema || '';
-      return { data: { schema } };
     } catch (error) {
       return {
         error: {
@@ -163,7 +237,8 @@ export class DgraphClient {
         }
       };
       
-      const response = await fetch(`${this.connection.url}/admin`, {
+      const url = this.getBaseUrl('admin');
+      const response = await fetch(url, {
         method: 'POST',
         headers: {
           ...this.headers,
@@ -175,29 +250,65 @@ export class DgraphClient {
         })
       });
       
-      if (!response.ok) {
-        const errorText = await response.text();
-        return {
-          error: {
-            message: 'Failed to update schema',
-            details: errorText
-          }
-        };
+      if (this.useProxy) {
+        const proxyResponse = await response.json() as ProxyResponse<any>;
+        
+        if (proxyResponse.error) {
+          return {
+            error: {
+              message: 'Failed to update schema',
+              details: proxyResponse.error.message
+            }
+          };
+        }
+        
+        if (proxyResponse.status >= 400) {
+          return {
+            error: {
+              message: 'Failed to update schema',
+              details: `Status: ${proxyResponse.status} ${proxyResponse.statusText}`
+            }
+          };
+        }
+        
+        const data = proxyResponse.data;
+        
+        // Check for GraphQL errors
+        if (data.errors) {
+          return {
+            error: {
+              message: 'Failed to update schema',
+              details: JSON.stringify(data.errors)
+            }
+          };
+        }
+        
+        return { data: { success: true } };
+      } else {
+        if (!response.ok) {
+          const errorText = await response.text();
+          return {
+            error: {
+              message: 'Failed to update schema',
+              details: errorText
+            }
+          };
+        }
+        
+        const data = await response.json();
+        
+        // Check for GraphQL errors
+        if (data.errors) {
+          return {
+            error: {
+              message: 'Failed to update schema',
+              details: JSON.stringify(data.errors)
+            }
+          };
+        }
+        
+        return { data: { success: true } };
       }
-      
-      const data = await response.json();
-      
-      // Check for GraphQL errors
-      if (data.errors) {
-        return {
-          error: {
-            message: 'Failed to update schema',
-            details: JSON.stringify(data.errors)
-          }
-        };
-      }
-      
-      return { data: { success: true } };
     } catch (error) {
       return {
         error: {
@@ -211,34 +322,70 @@ export class DgraphClient {
   // Execute GraphQL query
   async executeQuery<T>(query: string, variables?: Record<string, any>): Promise<DgraphResponse<T>> {
     try {
-      const response = await fetch(`${this.connection.url}/graphql`, {
+      const url = this.getBaseUrl('graphql');
+      const response = await fetch(url, {
         method: 'POST',
         headers: this.headers,
         body: JSON.stringify({
           query,
           variables
         })
-      })
+      });
       
-      const data = await response.json()
-      
-      if (data.errors) {
-        return {
-          error: {
-            message: 'GraphQL query execution failed',
-            details: JSON.stringify(data.errors)
-          }
+      if (this.useProxy) {
+        const proxyResponse = await response.json() as ProxyResponse<any>;
+        
+        if (proxyResponse.error) {
+          return {
+            error: {
+              message: 'GraphQL query execution failed',
+              details: proxyResponse.error.message
+            }
+          };
         }
+        
+        if (proxyResponse.status >= 400) {
+          return {
+            error: {
+              message: 'GraphQL query execution failed',
+              details: `Status: ${proxyResponse.status} ${proxyResponse.statusText}`
+            }
+          };
+        }
+        
+        const data = proxyResponse.data;
+        
+        if (data.errors) {
+          return {
+            error: {
+              message: 'GraphQL query execution failed',
+              details: JSON.stringify(data.errors)
+            }
+          };
+        }
+        
+        return { data: data.data as T };
+      } else {
+        const data = await response.json();
+        
+        if (data.errors) {
+          return {
+            error: {
+              message: 'GraphQL query execution failed',
+              details: JSON.stringify(data.errors)
+            }
+          };
+        }
+        
+        return { data: data.data as T };
       }
-      
-      return { data: data.data as T }
     } catch (error) {
       return {
         error: {
           message: 'GraphQL query execution failed',
           details: error instanceof Error ? error.message : String(error)
         }
-      }
+      };
     }
   }
 }

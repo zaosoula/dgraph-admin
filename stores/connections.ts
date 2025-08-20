@@ -1,12 +1,40 @@
 import { defineStore } from 'pinia'
-import { ref, computed } from 'vue'
+import { ref, computed, watch } from 'vue'
 import type { Connection, ConnectionState } from '@/types/connection'
 
-export const useConnectionsStore = defineStore('connections', () => {
-  const connections = ref<Connection[]>([])
-  const activeConnectionId = ref<string | null>(null)
-  const connectionStates = ref<Record<string, ConnectionState>>({})
+// Storage keys
+const STORAGE_KEY_CONNECTIONS = 'dgraph_admin_connections'
+const STORAGE_KEY_ACTIVE_CONNECTION = 'dgraph_admin_active_connection'
+const STORAGE_KEY_CONNECTION_STATES = 'dgraph_admin_connection_states'
 
+// Helper to safely parse JSON from localStorage
+const safeParseJSON = <T>(key: string, defaultValue: T): T => {
+  try {
+    const storedValue = localStorage.getItem(key)
+    if (!storedValue) return defaultValue
+    return JSON.parse(storedValue) as T
+  } catch (error) {
+    console.error(`Error parsing stored value for ${key}:`, error)
+    return defaultValue
+  }
+}
+
+// Helper to safely stringify and save JSON to localStorage
+const saveToLocalStorage = (key: string, value: any): void => {
+  try {
+    localStorage.setItem(key, JSON.stringify(value))
+  } catch (error) {
+    console.error(`Error saving value to ${key}:`, error)
+  }
+}
+
+export const useConnectionsStore = defineStore('connections', () => {
+  // Load initial state from localStorage
+  const connections = ref<Connection[]>(safeParseJSON<Connection[]>(STORAGE_KEY_CONNECTIONS, []))
+  const activeConnectionId = ref<string | null>(safeParseJSON<string | null>(STORAGE_KEY_ACTIVE_CONNECTION, null))
+  const connectionStates = ref<Record<string, ConnectionState>>(safeParseJSON<Record<string, ConnectionState>>(STORAGE_KEY_CONNECTION_STATES, {}))
+
+  // Computed properties
   const activeConnection = computed(() => {
     if (!activeConnectionId.value) return null
     return connections.value.find(conn => conn.id === activeConnectionId.value) || null
@@ -17,6 +45,20 @@ export const useConnectionsStore = defineStore('connections', () => {
     return connectionStates.value[activeConnectionId.value] || null
   })
 
+  // Persist state to localStorage when it changes
+  watch(connections, (newConnections) => {
+    saveToLocalStorage(STORAGE_KEY_CONNECTIONS, newConnections)
+  }, { deep: true })
+
+  watch(activeConnectionId, (newActiveConnectionId) => {
+    saveToLocalStorage(STORAGE_KEY_ACTIVE_CONNECTION, newActiveConnectionId)
+  })
+
+  watch(connectionStates, (newConnectionStates) => {
+    saveToLocalStorage(STORAGE_KEY_CONNECTION_STATES, newConnectionStates)
+  }, { deep: true })
+
+  // Store actions
   function addConnection(connection: Omit<Connection, 'id' | 'createdAt' | 'updatedAt'>) {
     const id = crypto.randomUUID()
     const now = new Date()
@@ -115,4 +157,3 @@ export const useConnectionsStore = defineStore('connections', () => {
     updateConnectionState
   }
 })
-
