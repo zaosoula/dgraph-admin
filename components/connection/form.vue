@@ -1,9 +1,9 @@
 <script setup lang="ts">
-import { ref, reactive } from 'vue'
+import { ref, reactive, computed, watch } from 'vue'
 import { useConnectionsStore } from '@/stores/connections'
 import { useCredentialStorage } from '@/composables/useCredentialStorage'
 import { useDgraphClient } from '@/composables/useDgraphClient'
-import type { Connection, ConnectionType, ConnectionCredentials } from '@/types/connection'
+import type { Connection, ConnectionType, ConnectionCredentials, AuthMethod } from '@/types/connection'
 
 const props = defineProps<{
   connection?: Connection
@@ -28,11 +28,15 @@ const formState = reactive({
   url: props.connection?.url || '',
   isSecure: props.connection?.isSecure || false,
   credentials: {
+    authMethod: props.connection?.credentials.authMethod || 'basic' as AuthMethod,
     username: props.connection?.credentials.username || '',
     password: props.connection?.credentials.password || '',
     apiKey: props.connection?.credentials.apiKey || '',
     token: props.connection?.credentials.token || '',
-    authToken: props.connection?.credentials.authToken || ''
+    authToken: props.connection?.credentials.authToken || '',
+    xAuthToken: props.connection?.credentials.xAuthToken || '',
+    jwt: props.connection?.credentials.jwt || '',
+    jwtHeader: props.connection?.credentials.jwtHeader || ''
   }
 })
 
@@ -41,6 +45,24 @@ const errors = reactive({
   name: '',
   url: ''
 })
+
+// Authentication method descriptions
+const authMethodDescriptions = {
+  basic: 'Basic Authentication (username/password)',
+  apiKey: 'API Key (X-Dgraph-ApiKey)',
+  accessToken: 'Access Token (Authorization: Bearer)',
+  authToken: 'Auth Token (X-Dgraph-AuthToken) - Used when ACL is enabled',
+  xAuthToken: 'X-Auth-Token - Used when anonymous access is disabled',
+  jwt: 'JWT - Used with Dgraph.Authorization'
+}
+
+// Show fields based on selected auth method
+const showBasicAuth = computed(() => formState.credentials.authMethod === 'basic')
+const showApiKey = computed(() => formState.credentials.authMethod === 'apiKey')
+const showAccessToken = computed(() => formState.credentials.authMethod === 'accessToken')
+const showAuthToken = computed(() => formState.credentials.authMethod === 'authToken')
+const showXAuthToken = computed(() => formState.credentials.authMethod === 'xAuthToken')
+const showJwt = computed(() => formState.credentials.authMethod === 'jwt')
 
 const validate = () => {
   let isValid = true
@@ -157,6 +179,19 @@ const saveConnection = async () => {
 const cancelForm = () => {
   emit('cancelled')
 }
+
+// Reset auth fields when auth method changes
+watch(() => formState.credentials.authMethod, () => {
+  // Clear all auth fields
+  formState.credentials.username = ''
+  formState.credentials.password = ''
+  formState.credentials.apiKey = ''
+  formState.credentials.token = ''
+  formState.credentials.authToken = ''
+  formState.credentials.xAuthToken = ''
+  formState.credentials.jwt = ''
+  formState.credentials.jwtHeader = ''
+})
 </script>
 
 <template>
@@ -210,27 +245,45 @@ const cancelForm = () => {
     <div v-if="formState.isSecure" class="space-y-4 border rounded-md p-4">
       <h3 class="text-sm font-medium">Authentication</h3>
       
+      <!-- Authentication Method Selector -->
       <div class="space-y-2">
-        <label for="username" class="text-sm font-medium">Username</label>
-        <UiInput 
-          id="username" 
-          v-model="formState.credentials.username" 
-          placeholder="Username"
-        />
+        <label for="authMethod" class="text-sm font-medium">Authentication Method</label>
+        <select 
+          id="authMethod" 
+          v-model="formState.credentials.authMethod"
+          class="flex h-9 w-full rounded-md border border-input bg-transparent px-3 py-1 text-sm shadow-sm transition-colors file:border-0 file:bg-transparent file:text-sm file:font-medium placeholder:text-muted-foreground focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-ring disabled:cursor-not-allowed disabled:opacity-50"
+        >
+          <option v-for="(description, method) in authMethodDescriptions" :key="method" :value="method">
+            {{ description }}
+          </option>
+        </select>
       </div>
       
-      <div class="space-y-2">
-        <label for="password" class="text-sm font-medium">Password</label>
-        <UiInput 
-          id="password" 
-          type="password" 
-          v-model="formState.credentials.password" 
-          placeholder="Password"
-        />
+      <!-- Basic Auth (Username/Password) -->
+      <div v-if="showBasicAuth" class="space-y-4">
+        <div class="space-y-2">
+          <label for="username" class="text-sm font-medium">Username</label>
+          <UiInput 
+            id="username" 
+            v-model="formState.credentials.username" 
+            placeholder="Username"
+          />
+        </div>
+        
+        <div class="space-y-2">
+          <label for="password" class="text-sm font-medium">Password</label>
+          <UiInput 
+            id="password" 
+            type="password" 
+            v-model="formState.credentials.password" 
+            placeholder="Password"
+          />
+        </div>
       </div>
       
-      <div class="space-y-2">
-        <label for="apiKey" class="text-sm font-medium">API Key</label>
+      <!-- API Key (X-Dgraph-ApiKey) -->
+      <div v-if="showApiKey" class="space-y-2">
+        <label for="apiKey" class="text-sm font-medium">API Key (X-Dgraph-ApiKey)</label>
         <UiInput 
           id="apiKey" 
           v-model="formState.credentials.apiKey" 
@@ -238,8 +291,9 @@ const cancelForm = () => {
         />
       </div>
       
-      <div class="space-y-2">
-        <label for="token" class="text-sm font-medium">Access Token</label>
+      <!-- Access Token (Authorization: Bearer) -->
+      <div v-if="showAccessToken" class="space-y-2">
+        <label for="token" class="text-sm font-medium">Access Token (Authorization: Bearer)</label>
         <UiInput 
           id="token" 
           v-model="formState.credentials.token" 
@@ -247,17 +301,58 @@ const cancelForm = () => {
         />
       </div>
       
-      <div class="space-y-2">
+      <!-- Auth Token (X-Dgraph-AuthToken) -->
+      <div v-if="showAuthToken" class="space-y-2">
         <label for="authToken" class="text-sm font-medium">Auth Token (X-Dgraph-AuthToken)</label>
         <UiInput 
           id="authToken" 
           v-model="formState.credentials.authToken" 
           placeholder="Auth Token"
         />
+        <p class="text-xs text-muted-foreground">
+          Used when ACL is enabled. Pass the access token you got in the login response.
+        </p>
+      </div>
+      
+      <!-- X-Auth-Token -->
+      <div v-if="showXAuthToken" class="space-y-2">
+        <label for="xAuthToken" class="text-sm font-medium">X-Auth-Token</label>
+        <UiInput 
+          id="xAuthToken" 
+          v-model="formState.credentials.xAuthToken" 
+          placeholder="Admin Key or Client Key"
+        />
+        <p class="text-xs text-muted-foreground">
+          Used when anonymous access is disabled. Provide an Admin Key or Client Key.
+        </p>
+      </div>
+      
+      <!-- JWT -->
+      <div v-if="showJwt" class="space-y-4">
+        <div class="space-y-2">
+          <label for="jwt" class="text-sm font-medium">JWT Token</label>
+          <UiInput 
+            id="jwt" 
+            v-model="formState.credentials.jwt" 
+            placeholder="JWT Token"
+          />
+        </div>
+        
+        <div class="space-y-2">
+          <label for="jwtHeader" class="text-sm font-medium">JWT Header Name (Optional)</label>
+          <UiInput 
+            id="jwtHeader" 
+            v-model="formState.credentials.jwtHeader" 
+            placeholder="Authorization"
+          />
+          <p class="text-xs text-muted-foreground">
+            Custom header name for JWT as set in Dgraph.Authorization. Defaults to "Authorization" if not specified.
+          </p>
+        </div>
       </div>
       
       <p class="text-xs text-muted-foreground">
-        Note: Provide either username/password, API key, access token, or auth token based on your Dgraph instance's authentication method.
+        Note: Select the authentication method that matches your Dgraph instance's configuration.
       </p>
     </div>
     
@@ -291,3 +386,4 @@ const cancelForm = () => {
     </div>
   </div>
 </template>
+

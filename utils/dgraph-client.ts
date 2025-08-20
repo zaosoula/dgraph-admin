@@ -47,21 +47,72 @@ export class DgraphClient {
     // Add authentication headers based on credentials
     const { credentials } = this.connection
     
-    if (credentials.apiKey) {
-      this.headers['X-Dgraph-ApiKey'] = credentials.apiKey
-    }
-    
-    if (credentials.authToken) {
-      this.headers['X-Dgraph-AuthToken'] = credentials.authToken
-    }
-    
-    if (credentials.token) {
-      this.headers['Authorization'] = `Bearer ${credentials.token}`
-    }
-    
-    if (credentials.username && credentials.password) {
-      const base64Credentials = btoa(`${credentials.username}:${credentials.password}`)
-      this.headers['Authorization'] = `Basic ${base64Credentials}`
+    // If authMethod is specified, use that specific method
+    if (credentials.authMethod) {
+      switch (credentials.authMethod) {
+        case 'basic':
+          if (credentials.username && credentials.password) {
+            const base64Credentials = btoa(`${credentials.username}:${credentials.password}`)
+            this.headers['Authorization'] = `Basic ${base64Credentials}`
+          }
+          break;
+          
+        case 'apiKey':
+          if (credentials.apiKey) {
+            this.headers['X-Dgraph-ApiKey'] = credentials.apiKey
+          }
+          break;
+          
+        case 'accessToken':
+          if (credentials.token) {
+            this.headers['Authorization'] = `Bearer ${credentials.token}`
+          }
+          break;
+          
+        case 'authToken':
+          if (credentials.authToken) {
+            this.headers['X-Dgraph-AuthToken'] = credentials.authToken
+          }
+          break;
+          
+        case 'xAuthToken':
+          if (credentials.xAuthToken) {
+            this.headers['X-Auth-Token'] = credentials.xAuthToken
+          }
+          break;
+          
+        case 'jwt':
+          if (credentials.jwt) {
+            // Use custom header if specified, otherwise use Authorization
+            const headerName = credentials.jwtHeader || 'Authorization'
+            this.headers[headerName] = credentials.jwt.startsWith('Bearer ') 
+              ? credentials.jwt 
+              : `Bearer ${credentials.jwt}`
+          }
+          break;
+      }
+    } else {
+      // For backward compatibility, try all methods
+      if (credentials.apiKey) {
+        this.headers['X-Dgraph-ApiKey'] = credentials.apiKey
+      }
+      
+      if (credentials.authToken) {
+        this.headers['X-Dgraph-AuthToken'] = credentials.authToken
+      }
+      
+      if (credentials.xAuthToken) {
+        this.headers['X-Auth-Token'] = credentials.xAuthToken
+      }
+      
+      if (credentials.token) {
+        this.headers['Authorization'] = `Bearer ${credentials.token}`
+      }
+      
+      if (credentials.username && credentials.password) {
+        const base64Credentials = btoa(`${credentials.username}:${credentials.password}`)
+        this.headers['Authorization'] = `Basic ${base64Credentials}`
+      }
     }
   }
   
