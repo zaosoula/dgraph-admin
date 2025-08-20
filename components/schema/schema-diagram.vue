@@ -25,6 +25,7 @@ type GraphNode = {
   kind: string
   fields?: string[]
   description?: string
+  directives?: string[]
 }
 
 type GraphLink = {
@@ -38,10 +39,52 @@ type GraphData = {
   links: GraphLink[]
 }
 
+// Dgraph custom directives that need to be handled
+const dgraphDirectives = [
+  'auth',
+  'cascade',
+  'custom',
+  'deprecated',
+  'dgraph',
+  'embedding',
+  'generate',
+  'hasInverse',
+  'id',
+  'include',
+  'lambda',
+  'remote',
+  'remoteResponse',
+  'search',
+  'secret',
+  'skip',
+  'withSubscription',
+  'lambdaOnMutate'
+]
+
+// Preprocess schema to handle Dgraph custom directives
+const preprocessSchema = (schema: string): string => {
+  // First, add directive definitions for all Dgraph custom directives
+  let processedSchema = schema
+
+  // Add directive definitions at the beginning of the schema
+  let directiveDefinitions = ''
+  dgraphDirectives.forEach(directive => {
+    // Define each directive with a flexible signature that accepts any arguments
+    directiveDefinitions += `directive @${directive} on OBJECT | FIELD_DEFINITION | INTERFACE | SCALAR | ENUM\n`
+  })
+
+  // Add the directive definitions to the schema
+  processedSchema = directiveDefinitions + processedSchema
+
+  debugInfo.value = `Preprocessed schema with ${dgraphDirectives.length} Dgraph directive definitions`
+  
+  return processedSchema
+}
+
 // Load schema from Dgraph
 const loadSchema = async () => {
-  if (!connectionsStore.activeConnection) {
-    error.value = 'No active connection'
+  if (!connectionsStore.activeConnection && !props.schema) {
+    error.value = 'No active connection or schema provided'
     return
   }
   
@@ -90,8 +133,11 @@ const processSchema = () => {
   }
   
   try {
+    // Preprocess the schema to handle Dgraph custom directives
+    const processedSchema = preprocessSchema(schemaText.value)
+    
     // Parse the schema
-    const schema = buildSchema(schemaText.value)
+    const schema = buildSchema(processedSchema)
     const typeMap = schema.getTypeMap()
     
     const graphData: GraphData = {
@@ -114,7 +160,18 @@ const processSchema = () => {
         id: typeName,
         name: typeName,
         kind: type.constructor.name.replace('GraphQL', ''),
-        fields: []
+        fields: [],
+        directives: []
+      }
+      
+      // Extract directives from the schema text (since GraphQL library doesn't expose them directly)
+      const typeRegex = new RegExp(`type\\s+${typeName}\\s+[^{]*{`, 'i')
+      const typeMatch = schemaText.value.match(typeRegex)
+      if (typeMatch) {
+        const directiveMatches = typeMatch[0].match(/@\w+(\([^)]*\))?/g)
+        if (directiveMatches) {
+          node.directives = directiveMatches
+        }
       }
       
       // Add fields if available
@@ -240,10 +297,22 @@ const renderGraph = (data: GraphData) => {
         showNodeDetails(d)
       })
     
+    // Calculate node height based on fields and directives
+    const getNodeHeight = (d: GraphNode) => {
+      const fieldCount = d.fields?.length || 0
+      const directiveCount = d.directives?.length || 0
+      const baseHeight = 40 // Title height
+      const fieldHeight = Math.min(fieldCount, 5) * 20 // Up to 5 fields
+      const directiveHeight = directiveCount > 0 ? 20 : 0 // Space for directives
+      const moreFieldsHeight = fieldCount > 5 ? 20 : 0 // "... more" text
+      
+      return baseHeight + fieldHeight + directiveHeight + moreFieldsHeight
+    }
+    
     // Add node rectangles
     node.append('rect')
       .attr('width', d => Math.max(d.name.length * 8 + 20, 100))
-      .attr('height', d => (d.fields?.length || 0) > 0 ? Math.min((d.fields?.length || 0) * 20 + 40, 200) : 40)
+      .attr('height', d => getNodeHeight(d))
       .attr('rx', 5)
       .attr('ry', 5)
       .attr('fill', d => getNodeColor(d.kind))
@@ -257,16 +326,31 @@ const renderGraph = (data: GraphData) => {
       .attr('font-weight', 'bold')
       .text(d => d.name)
     
+    // Add directives if any
+    node.each(function(d) {
+      const nodeGroup = d3.select(this)
+      
+      if (d.directives && d.directives.length > 0) {
+        nodeGroup.append('text')
+          .attr('x', 10)
+          .attr('y', 35)
+          .attr('font-size', 10)
+          .attr('fill', '#666')
+          .text(d.directives.join(' '))
+      }
+    })
+    
     // Add field names (limited to first 5 for readability)
     node.each(function(d) {
       const nodeGroup = d3.select(this)
       const fields = d.fields || []
       const displayFields = fields.slice(0, 5)
+      const directiveOffset = d.directives && d.directives.length > 0 ? 20 : 0
       
       displayFields.forEach((field, i) => {
         nodeGroup.append('text')
           .attr('x', 15)
-          .attr('y', 40 + i * 20)
+          .attr('y', 40 + directiveOffset + i * 20)
           .attr('font-size', 12)
           .text(field)
       })
@@ -274,7 +358,7 @@ const renderGraph = (data: GraphData) => {
       if (fields.length > 5) {
         nodeGroup.append('text')
           .attr('x', 15)
-          .attr('y', 40 + 5 * 20)
+          .attr('y', 40 + directiveOffset + 5 * 20)
           .attr('font-size', 12)
           .text(`... ${fields.length - 5} more`)
       }
