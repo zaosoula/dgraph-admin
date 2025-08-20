@@ -2,6 +2,7 @@
 import { ref, onMounted, watch, computed } from 'vue'
 import { useConnectionsStore } from '@/stores/connections'
 import { useDgraphClient } from '@/composables/useDgraphClient'
+import { useCodeMirror } from '@/composables/useCodeMirror'
 
 const props = defineProps<{
   initialSchema?: string
@@ -20,9 +21,18 @@ const schema = ref(props.initialSchema || '')
 const originalSchema = ref('') // Store the original schema from the server
 const isLoading = ref(false)
 const error = ref<string | null>(null)
-const editorElement = ref<HTMLTextAreaElement | null>(null)
+const editorElement = ref<HTMLElement | null>(null)
 const showDiff = ref(false)
 const showConfirmDialog = ref(false)
+
+// Initialize CodeMirror
+const { updateContent } = useCodeMirror(editorElement, schema.value, {
+  readOnly: props.readOnly,
+  onChange: (value) => {
+    schema.value = value
+    emit('update:schema', value)
+  }
+})
 
 // Compute the diff between original and current schema
 const schemaDiff = computed(() => {
@@ -110,6 +120,7 @@ const loadSchema = async () => {
     
     if (result.data) {
       schema.value = result.data.schema
+      updateContent(result.data.schema) // Update CodeMirror content
       originalSchema.value = result.data.schema // Store the original schema
       emit('update:schema', schema.value)
     }
@@ -198,17 +209,18 @@ const toggleDiff = () => {
   showDiff.value = !showDiff.value
 }
 
-// Update schema when input changes
-const updateSchema = (event: Event) => {
-  const target = event.target as HTMLTextAreaElement
-  schema.value = target.value
-  emit('update:schema', schema.value)
-}
-
 // Watch for active connection changes
 watch(() => connectionsStore.activeConnectionId, (newId) => {
   if (newId) {
     loadSchema()
+  }
+})
+
+// Watch for initialSchema changes
+watch(() => props.initialSchema, (newSchema) => {
+  if (newSchema !== undefined && newSchema !== schema.value) {
+    schema.value = newSchema
+    updateContent(newSchema)
   }
 })
 
@@ -307,16 +319,12 @@ onMounted(() => {
     </div>
     
     <div v-else class="flex-1 border rounded-md overflow-hidden">
-      <!-- Basic editor - will be replaced with Monaco or CodeMirror in future -->
-      <textarea
-        ref="editorElement"
-        v-model="schema"
-        @input="updateSchema"
-        class="w-full h-full p-4 font-mono text-sm focus:outline-none resize-none"
-        :readonly="props.readOnly"
-        placeholder="# Type your GraphQL schema here"
-        rows="20"
-      ></textarea>
+      <!-- CodeMirror editor with GraphQL syntax highlighting -->
+      <div 
+        ref="editorElement" 
+        class="w-full h-full"
+      ></div>
     </div>
   </div>
 </template>
+
