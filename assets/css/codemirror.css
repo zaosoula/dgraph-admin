@@ -1,0 +1,137 @@
+/* Basic CodeMirror styles */
+.cm-editor {
+  height: 100%;
+  width: 100%;
+  font-family: monospace;
+  font-size: 14px;
+  line-height: 1.5;
+}
+
+.cm-scroller {
+  overflow: auto;
+  height: 100%;
+}
+
+.cm-content {
+  white-space: pre;
+  padding: 10px;
+}
+
+.cm-line {
+  padding: 0 2px;
+}
+
+/* Syntax highlighting */
+.cm-keyword {
+  color: #708;
+}
+
+.cm-atom {
+  color: #219;
+}
+
+.cm-number {
+  color: #164;
+}
+
+.cm-def {
+  color: #00f;
+}
+
+.cm-variable {
+  color: black;
+}
+
+.cm-variable-2 {
+  color: #05a;
+}
+
+.cm-variable-3 {
+  color: #085;
+}
+
+.cm-property {
+  color: black;
+}
+
+.cm-operator {
+  color: black;
+}
+
+.cm-comment {
+  color: #a50;
+}
+
+.cm-string {
+  color: #a11;
+}
+
+.cm-string-2 {
+  color: #f50;
+}
+
+.cm-meta {
+  color: #555;
+}
+
+.cm-qualifier {
+  color: #555;
+}
+
+.cm-builtin {
+  color: #30a;
+}
+
+.cm-bracket {
+  color: #997;
+}
+
+.cm-tag {
+  color: #170;
+}
+
+.cm-attribute {
+  color: #00c;
+}
+
+.cm-header {
+  color: blue;
+}
+
+.cm-quote {
+  color: #090;
+}
+
+.cm-hr {
+  color: #999;
+}
+
+.cm-link {
+  color: #00c;
+}
+
+/* Active line highlight */
+.cm-activeLine {
+  background-color: rgba(0, 0, 0, 0.05);
+}
+
+/* Selection */
+.cm-selectionBackground {
+  background-color: rgba(0, 0, 255, 0.1) !important;
+}
+
+/* Gutters (line numbers) */
+.cm-gutters {
+  border-right: 1px solid #ddd;
+  background-color: #f7f7f7;
+  white-space: nowrap;
+  padding: 0 3px;
+}
+
+.cm-lineNumbers .cm-gutterElement {
+  color: #999;
+  padding: 0 3px 0 5px;
+  min-width: 20px;
+  text-align: right;
+  white-space: nowrap;
+}
