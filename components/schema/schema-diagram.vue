@@ -38,28 +38,6 @@ type GraphData = {
   links: GraphLink[]
 }
 
-// Dgraph custom directives that need to be handled
-const dgraphDirectives = [
-  'auth',
-  'cascade',
-  'custom',
-  'deprecated',
-  'dgraph',
-  'embedding',
-  'generate',
-  'hasInverse',
-  'id',
-  'include',
-  'lambda',
-  'remote',
-  'remoteResponse',
-  'search',
-  'secret',
-  'skip',
-  'withSubscription',
-  'lambdaOnMutate'
-]
-
 // Dgraph custom scalar types
 const dgraphScalarTypes = [
   'Int64',
@@ -70,33 +48,53 @@ const dgraphScalarTypes = [
   'MultiPolygon'
 ]
 
-// Preprocess schema to handle Dgraph custom directives and scalar types
-const preprocessSchema = (schema: string): string => {
+// A more direct approach: strip out all directives from the schema before parsing
+const stripDirectives = (schema: string): string => {
   try {
-    // First, add directive definitions for all Dgraph custom directives
-    let processedSchema = schema
-
     // Add scalar type definitions
+    let processedSchema = schema
+    
+    // Add scalar definitions
     let scalarDefinitions = ''
     dgraphScalarTypes.forEach(scalar => {
       scalarDefinitions += `scalar ${scalar}\n`
     })
-
-    // Add directive definitions with flexible arguments
-    let directiveDefinitions = ''
-    dgraphDirectives.forEach(directive => {
-      // Define each directive with a flexible signature that accepts any arguments
-      directiveDefinitions += `directive @${directive}(by: [String], field: String, metric: String, exponent: Int) on OBJECT | FIELD_DEFINITION | INTERFACE | SCALAR | ENUM\n`
-    })
-
-    // Add the definitions to the schema
-    processedSchema = scalarDefinitions + directiveDefinitions + processedSchema
+    
+    // Remove all directive declarations and usages
+    // This regex removes @directive(...) patterns
+    processedSchema = processedSchema.replace(/@\w+(\([^)]*\))?/g, '')
+    
+    // Add scalar definitions at the beginning
+    processedSchema = scalarDefinitions + processedSchema
     
     return processedSchema
   } catch (err) {
     console.error('Error preprocessing schema:', err)
     return schema
   }
+}
+
+// Extract directives from a type definition
+const extractDirectives = (typeName: string, schema: string): string[] => {
+  const directives: string[] = []
+  
+  try {
+    // Match the type definition
+    const typeRegex = new RegExp(`type\\s+${typeName}\\s+[^{]*{`, 'i')
+    const typeMatch = schema.match(typeRegex)
+    
+    if (typeMatch) {
+      // Extract all directives
+      const directiveMatches = typeMatch[0].match(/@\w+(\([^)]*\))?/g)
+      if (directiveMatches) {
+        return directiveMatches
+      }
+    }
+  } catch (err) {
+    console.error(`Error extracting directives for ${typeName}:`, err)
+  }
+  
+  return directives
 }
 
 // Load schema from Dgraph
@@ -146,11 +144,11 @@ const processSchema = () => {
   }
   
   try {
-    // Preprocess the schema to handle Dgraph custom directives
-    const processedSchema = preprocessSchema(schemaText.value)
+    // Strip directives from the schema before parsing
+    const strippedSchema = stripDirectives(schemaText.value)
     
     // Parse the schema
-    const schema = buildSchema(processedSchema)
+    const schema = buildSchema(strippedSchema)
     const typeMap = schema.getTypeMap()
     
     const graphData: GraphData = {
@@ -174,17 +172,7 @@ const processSchema = () => {
         name: typeName,
         kind: type.constructor.name.replace('GraphQL', ''),
         fields: [],
-        directives: []
-      }
-      
-      // Extract directives from the schema text (since GraphQL library doesn't expose them directly)
-      const typeRegex = new RegExp(`type\\s+${typeName}\\s+[^{]*{`, 'i')
-      const typeMatch = schemaText.value.match(typeRegex)
-      if (typeMatch) {
-        const directiveMatches = typeMatch[0].match(/@\w+(\([^)]*\))?/g)
-        if (directiveMatches) {
-          node.directives = directiveMatches
-        }
+        directives: extractDirectives(typeName, schemaText.value)
       }
       
       // Add fields if available
