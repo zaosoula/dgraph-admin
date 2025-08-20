@@ -1,5 +1,5 @@
 <script setup lang="ts">
-import { ref, reactive, computed, watch } from 'vue'
+import { ref, reactive, computed, watch, onMounted } from 'vue'
 import { useConnectionsStore } from '@/stores/connections'
 import { useCredentialStorage } from '@/composables/useCredentialStorage'
 import { useDgraphClient } from '@/composables/useDgraphClient'
@@ -21,6 +21,29 @@ const dgraphClient = useDgraphClient()
 const isLoading = ref(false)
 const testResult = ref<{ success: boolean; message: string } | null>(null)
 
+// Get stored credentials if editing an existing connection
+const storedCredentials = props.connection?.id 
+  ? credentialStorage.getCredentials(props.connection.id) 
+  : null
+
+// Determine the auth method based on stored credentials
+const determineAuthMethod = (creds: ConnectionCredentials | null): AuthMethod => {
+  if (!creds) return 'basic'
+  
+  // If authMethod is explicitly set, use it
+  if (creds.authMethod) return creds.authMethod
+  
+  // Otherwise, try to determine from the credentials
+  if (creds.username && creds.password) return 'basic'
+  if (creds.apiKey) return 'apiKey'
+  if (creds.token) return 'accessToken'
+  if (creds.authToken) return 'authToken'
+  if (creds.xAuthToken) return 'xAuthToken'
+  if (creds.jwt) return 'jwt'
+  
+  return 'basic'
+}
+
 // Form state
 const formState = reactive({
   name: props.connection?.name || '',
@@ -28,15 +51,15 @@ const formState = reactive({
   url: props.connection?.url || '',
   isSecure: props.connection?.isSecure || false,
   credentials: {
-    authMethod: props.connection?.credentials.authMethod || 'basic' as AuthMethod,
-    username: props.connection?.credentials.username || '',
-    password: props.connection?.credentials.password || '',
-    apiKey: props.connection?.credentials.apiKey || '',
-    token: props.connection?.credentials.token || '',
-    authToken: props.connection?.credentials.authToken || '',
-    xAuthToken: props.connection?.credentials.xAuthToken || '',
-    jwt: props.connection?.credentials.jwt || '',
-    jwtHeader: props.connection?.credentials.jwtHeader || ''
+    authMethod: determineAuthMethod(storedCredentials),
+    username: storedCredentials?.username || '',
+    password: storedCredentials?.password || '',
+    apiKey: storedCredentials?.apiKey || '',
+    token: storedCredentials?.token || '',
+    authToken: storedCredentials?.authToken || '',
+    xAuthToken: storedCredentials?.xAuthToken || '',
+    jwt: storedCredentials?.jwt || '',
+    jwtHeader: storedCredentials?.jwtHeader || ''
   }
 })
 
@@ -180,9 +203,18 @@ const cancelForm = () => {
   emit('cancelled')
 }
 
-// Reset auth fields when auth method changes
-watch(() => formState.credentials.authMethod, () => {
-  // Clear all auth fields
+// Track if this is the initial load or a user change
+const isInitialLoad = ref(true)
+
+// Reset auth fields when auth method changes (but not on initial load)
+watch(() => formState.credentials.authMethod, (newMethod, oldMethod) => {
+  // Skip clearing fields on initial load
+  if (isInitialLoad.value) {
+    isInitialLoad.value = false
+    return
+  }
+  
+  // Only clear fields when the user changes the auth method
   formState.credentials.username = ''
   formState.credentials.password = ''
   formState.credentials.apiKey = ''
@@ -386,4 +418,3 @@ watch(() => formState.credentials.authMethod, () => {
     </div>
   </div>
 </template>
-
