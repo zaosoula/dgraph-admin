@@ -1,7 +1,12 @@
 <script setup lang="ts">
-import { ref, onMounted, watch } from 'vue'
+import { ref, onMounted, watch, onBeforeUnmount, shallowRef } from 'vue'
 import { useConnectionsStore } from '@/stores/connections'
 import { useDgraphClient } from '@/composables/useDgraphClient'
+import { EditorState, Extension } from '@codemirror/state'
+import { EditorView, keymap, lineNumbers, highlightActiveLine } from '@codemirror/view'
+import { defaultKeymap, history, historyKeymap } from '@codemirror/commands'
+import { sql, SQLDialect } from '@codemirror/lang-sql'
+import { syntaxHighlighting, defaultHighlightStyle } from '@codemirror/language'
 
 const props = defineProps<{
   initialSchema?: string
@@ -19,7 +24,108 @@ const dgraphClient = useDgraphClient()
 const schema = ref(props.initialSchema || '')
 const isLoading = ref(false)
 const error = ref<string | null>(null)
-const editorElement = ref<HTMLTextAreaElement | null>(null)
+const editorContainer = ref<HTMLDivElement | null>(null)
+const editorView = shallowRef<EditorView | null>(null)
+
+// Custom GraphQL-like dialect for SQL language (as a fallback for GraphQL)
+const graphqlDialect = SQLDialect.define({
+  keywords: [
+    'type', 'input', 'interface', 'enum', 'union', 'scalar', 'directive',
+    'extend', 'schema', 'query', 'mutation', 'subscription', 'fragment',
+    'on', 'implements', 'repeatable'
+  ],
+  types: [
+    'ID', 'String', 'Int', 'Float', 'Boolean', 'DateTime'
+  ],
+  builtin: [
+    '@deprecated', '@skip', '@include', '@specifiedBy'
+  ],
+  operatorChars: "@!:=<>",
+  identifierQuotes: '""\'\'``',
+  specialVar: []
+})
+
+// Create CodeMirror editor
+const createEditor = () => {
+  if (!editorContainer.value) return
+  
+  // Clear container first
+  editorContainer.value.innerHTML = ''
+  
+  // Define extensions
+  const extensions: Extension[] = [
+    lineNumbers(),
+    history(),
+    keymap.of([...defaultKeymap, ...historyKeymap]),
+    highlightActiveLine(),
+    syntaxHighlighting(defaultHighlightStyle),
+    sql({ dialect: graphqlDialect }),
+    EditorView.updateListener.of(update => {
+      if (update.docChanged) {
+        schema.value = update.state.doc.toString()
+        emit('update:schema', schema.value)
+      }
+    }),
+    EditorView.theme({
+      "&": {
+        height: "100%",
+        fontSize: "14px",
+        fontFamily: "monospace"
+      },
+      ".cm-scroller": {
+        overflow: "auto",
+        fontFamily: "monospace"
+      },
+      ".cm-content": {
+        caretColor: "#0D9488"
+      },
+      ".cm-cursor": {
+        borderLeftColor: "#0D9488"
+      },
+      ".cm-activeLine": {
+        backgroundColor: "rgba(226, 232, 240, 0.5)"
+      },
+      ".cm-gutters": {
+        backgroundColor: "#f8fafc",
+        color: "#64748b",
+        border: "none"
+      }
+    })
+  ]
+  
+  // Add read-only extension if needed
+  if (props.readOnly) {
+    extensions.push(EditorState.readOnly.of(true))
+  }
+  
+  // Create editor state
+  const state = EditorState.create({
+    doc: schema.value,
+    extensions
+  })
+  
+  // Create editor view
+  editorView.value = new EditorView({
+    state,
+    parent: editorContainer.value
+  })
+}
+
+// Update editor content when schema changes externally
+const updateEditorContent = () => {
+  if (!editorView.value) return
+  
+  const currentContent = editorView.value.state.doc.toString()
+  if (currentContent !== schema.value) {
+    editorView.value.dispatch({
+      changes: {
+        from: 0,
+        to: currentContent.length,
+        insert: schema.value
+      }
+    })
+  }
+}
 
 // Load schema from active connection
 const loadSchema = async () => {
@@ -45,6 +151,7 @@ const loadSchema = async () => {
     if (result.data) {
       schema.value = result.data.schema
       emit('update:schema', schema.value)
+      updateEditorContent()
     }
   } catch (err) {
     error.value = err instanceof Error ? err.message : String(err)
@@ -82,12 +189,13 @@ const saveSchema = async () => {
   }
 }
 
-// Update schema when input changes
-const updateSchema = (event: Event) => {
-  const target = event.target as HTMLTextAreaElement
-  schema.value = target.value
-  emit('update:schema', schema.value)
-}
+// Watch for schema changes from parent component
+watch(() => props.initialSchema, (newSchema) => {
+  if (newSchema !== undefined && newSchema !== schema.value) {
+    schema.value = newSchema
+    updateEditorContent()
+  }
+})
 
 // Watch for active connection changes
 watch(() => connectionsStore.activeConnectionId, (newId) => {
@@ -98,8 +206,17 @@ watch(() => connectionsStore.activeConnectionId, (newId) => {
 
 // Initialize
 onMounted(() => {
+  createEditor()
+  
   if (connectionsStore.activeConnectionId) {
     loadSchema()
+  }
+})
+
+// Cleanup
+onBeforeUnmount(() => {
+  if (editorView.value) {
+    editorView.value.destroy()
   }
 })
 </script>
@@ -138,17 +255,12 @@ onMounted(() => {
     </div>
     
     <div v-else class="flex-1 border rounded-md overflow-hidden">
-      <!-- Basic editor - will be replaced with Monaco or CodeMirror in future -->
-      <textarea
-        ref="editorElement"
-        v-model="schema"
-        @input="updateSchema"
-        class="w-full h-full p-4 font-mono text-sm focus:outline-none resize-none"
-        :readonly="props.readOnly"
-        placeholder="# Type your GraphQL schema here"
-        rows="20"
-      ></textarea>
+      <!-- CodeMirror editor container -->
+      <div 
+        ref="editorContainer" 
+        class="w-full h-full"
+        style="min-height: 400px;"
+      ></div>
     </div>
   </div>
 </template>
-
