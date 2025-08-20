@@ -125,6 +125,7 @@ const testConnection = async () => {
   testResult.value = null
   
   try {
+    // Create a temporary connection object for testing
     const tempConnection: Connection = {
       id: props.connection?.id || 'temp-id',
       name: formState.name,

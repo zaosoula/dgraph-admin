@@ -196,7 +196,6 @@ export class DgraphClient {
       },
       message: 'Connection test failed'
     };
-
     try {
       // 1. Health Check
       try {
@@ -205,11 +204,11 @@ export class DgraphClient {
           method: 'GET',
           headers: client.headers
         });
-
+        
         if (client.useProxy) {
           const proxyData = await healthResponse.json() as ProxyResponse<any>;
           result.healthCheck.success = proxyData.status >= 200 && proxyData.status < 300;
-          result.healthCheck.message = result.healthCheck.success
+          result.healthCheck.message = result.healthCheck.success 
             ? 'Health endpoint is accessible'
             : `Health endpoint returned status ${proxyData.status}: ${proxyData.statusText}`;
         } else {
@@ -222,7 +221,7 @@ export class DgraphClient {
         result.healthCheck.success = false;
         result.healthCheck.message = `Health endpoint check failed: ${healthError instanceof Error ? healthError.message : String(healthError)}`;
       }
-
+      
       // 2. Schema Check - Try to get the GraphQL schema
       try {
         const schemaQuery = `
@@ -232,7 +231,7 @@ export class DgraphClient {
             }
           }
         `;
-
+        
         const adminUrl = client.getBaseUrl('admin');
         const schemaResponse = await fetch(adminUrl, {
           method: 'POST',
@@ -242,26 +241,40 @@ export class DgraphClient {
           },
           body: JSON.stringify({ query: schemaQuery })
         });
-
+        
         if (client.useProxy) {
           const proxyData = await schemaResponse.json() as ProxyResponse<any>;
-          result.schemaCheck.success = proxyData.status >= 200 && proxyData.status < 300 &&
-            proxyData.data?.data?.getGQLSchema?.schema;
-          result.schemaCheck.message = result.schemaCheck.success
-            ? 'Successfully retrieved GraphQL schema'
-            : proxyData.error?.message || `Failed to retrieve schema: ${proxyData.statusText}`;
+          
+          // Check for errors in the response body even if status is 200
+          if (proxyData.data?.errors && proxyData.data.errors.length > 0) {
+            result.schemaCheck.success = false;
+            result.schemaCheck.message = `Schema check failed: ${proxyData.data.errors[0]?.message || 'Access Denied'}`;
+          } else {
+            result.schemaCheck.success = proxyData.status >= 200 && proxyData.status < 300 && 
+                                        proxyData.data?.data?.getGQLSchema?.schema;
+            result.schemaCheck.message = result.schemaCheck.success
+              ? 'Successfully retrieved GraphQL schema'
+              : proxyData.error?.message || `Failed to retrieve schema: ${proxyData.statusText}`;
+          }
         } else {
           const data = await schemaResponse.json();
-          result.schemaCheck.success = schemaResponse.ok && data?.data?.getGQLSchema?.schema;
-          result.schemaCheck.message = result.schemaCheck.success
-            ? 'Successfully retrieved GraphQL schema'
-            : data?.errors?.[0]?.message || 'Failed to retrieve schema';
+          
+          // Check for errors in the response body even if status is 200
+          if (data.errors && data.errors.length > 0) {
+            result.schemaCheck.success = false;
+            result.schemaCheck.message = `Schema check failed: ${data.errors[0]?.message || 'Access Denied'}`;
+          } else {
+            result.schemaCheck.success = schemaResponse.ok && data?.data?.getGQLSchema?.schema;
+            result.schemaCheck.message = result.schemaCheck.success
+              ? 'Successfully retrieved GraphQL schema'
+              : data?.errors?.[0]?.message || 'Failed to retrieve schema';
+          }
         }
       } catch (schemaError) {
         result.schemaCheck.success = false;
         result.schemaCheck.message = `Schema check failed: ${schemaError instanceof Error ? schemaError.message : String(schemaError)}`;
       }
-
+      
       // 3. Introspection Query - Test GraphQL endpoint with introspection
       try {
         const introspectionQuery = `
@@ -273,7 +286,7 @@ export class DgraphClient {
             }
           }
         `;
-
+        
         const graphqlUrl = client.getBaseUrl('graphql');
         const introspectionResponse = await fetch(graphqlUrl, {
           method: 'POST',
@@ -283,29 +296,43 @@ export class DgraphClient {
           },
           body: JSON.stringify({ query: introspectionQuery })
         });
-
+        
         if (client.useProxy) {
           const proxyData = await introspectionResponse.json() as ProxyResponse<any>;
-          result.introspectionCheck.success = proxyData.status >= 200 && proxyData.status < 300 &&
-            proxyData.data?.data?.__schema?.queryType;
-          result.introspectionCheck.message = result.introspectionCheck.success
-            ? 'GraphQL introspection query successful'
-            : proxyData.error?.message || `Introspection query failed: ${proxyData.statusText}`;
+          
+          // Check for errors in the response body even if status is 200
+          if (proxyData.data?.errors && proxyData.data.errors.length > 0) {
+            result.introspectionCheck.success = false;
+            result.introspectionCheck.message = `Introspection check failed: ${proxyData.data.errors[0]?.message || 'Access Denied'}`;
+          } else {
+            result.introspectionCheck.success = proxyData.status >= 200 && proxyData.status < 300 && 
+                                              proxyData.data?.data?.__schema?.queryType;
+            result.introspectionCheck.message = result.introspectionCheck.success
+              ? 'GraphQL introspection query successful'
+              : proxyData.error?.message || `Introspection query failed: ${proxyData.statusText}`;
+          }
         } else {
           const data = await introspectionResponse.json();
-          result.introspectionCheck.success = introspectionResponse.ok && data?.data?.__schema?.queryType;
-          result.introspectionCheck.message = result.introspectionCheck.success
-            ? 'GraphQL introspection query successful'
-            : data?.errors?.[0]?.message || 'Introspection query failed';
+          
+          // Check for errors in the response body even if status is 200
+          if (data.errors && data.errors.length > 0) {
+            result.introspectionCheck.success = false;
+            result.introspectionCheck.message = `Introspection check failed: ${data.errors[0]?.message || 'Access Denied'}`;
+          } else {
+            result.introspectionCheck.success = introspectionResponse.ok && data?.data?.__schema?.queryType;
+            result.introspectionCheck.message = result.introspectionCheck.success
+              ? 'GraphQL introspection query successful'
+              : data?.errors?.[0]?.message || 'Introspection query failed';
+          }
         }
       } catch (introspectionError) {
         result.introspectionCheck.success = false;
         result.introspectionCheck.message = `Introspection check failed: ${introspectionError instanceof Error ? introspectionError.message : String(introspectionError)}`;
       }
-
+      
       // Determine overall success
       result.success = result.healthCheck.success || result.schemaCheck.success || result.introspectionCheck.success;
-
+      
       // Set overall message
       if (result.success) {
         const successfulChecks = [
@@ -313,12 +340,12 @@ export class DgraphClient {
           result.schemaCheck.success ? 'schema' : null,
           result.introspectionCheck.success ? 'introspection' : null
         ].filter(Boolean).join(', ');
-
+        
         result.message = `Connection successful! Passed checks: ${successfulChecks}`;
       } else {
         result.message = 'Connection failed. All endpoint checks failed.';
       }
-
+      
       return result;
     } catch (error) {
       console.error('Connection test failed:', error);
@@ -326,13 +353,13 @@ export class DgraphClient {
       return result;
     }
   }
-
+  
   // Simple connection test (backward compatibility)
   async testConnectionSimple(): Promise<boolean> {
     const result = await this.testConnection();
     return result.success;
   }
-
+  
   // Get GraphQL schema
   async getSchema(): Promise<DgraphResponse<GraphQLSchema>> {
     try {
@@ -379,11 +406,12 @@ export class DgraphClient {
         }
 
         const data = proxyResponse.data;
-
-        // Check for GraphQL errors
-        if (data.errors) {
+        
+        // Check for GraphQL errors in the response body even if status is 200
+        if (data.errors || (data.data?.errors && data.data.errors.length > 0)) {
+          const errors = data.errors || data.data.errors;
           return {
-            error: this.processGraphQLErrors(data.errors, 'fetch schema')
+            error: this.processGraphQLErrors(errors, 'fetch schema')
           };
         }
 
@@ -403,11 +431,12 @@ export class DgraphClient {
         }
 
         const data = await response.json();
-
-        // Check for GraphQL errors
-        if (data.errors) {
+        
+        // Check for GraphQL errors in the response body even if status is 200
+        if (data.errors || (data.data?.errors && data.data.errors.length > 0)) {
+          const errors = data.errors || data.data.errors;
           return {
-            error: this.processGraphQLErrors(data.errors, 'fetch schema')
+            error: this.processGraphQLErrors(errors, 'fetch schema')
           };
         }
 
@@ -485,11 +514,12 @@ export class DgraphClient {
         }
 
         const data = proxyResponse.data;
-
-        // Check for GraphQL errors
-        if (data.errors) {
+        
+        // Check for GraphQL errors in the response body even if status is 200
+        if (data.errors || (data.data?.errors && data.data.errors.length > 0)) {
+          const errors = data.errors || data.data.errors;
           return {
-            error: this.processGraphQLErrors(data.errors, 'update schema')
+            error: this.processGraphQLErrors(errors, 'update schema')
           };
         }
 
@@ -507,11 +537,12 @@ export class DgraphClient {
         }
 
         const data = await response.json();
-
-        // Check for GraphQL errors
-        if (data.errors) {
+        
+        // Check for GraphQL errors in the response body even if status is 200
+        if (data.errors || (data.data?.errors && data.data.errors.length > 0)) {
+          const errors = data.errors || data.data.errors;
           return {
-            error: this.processGraphQLErrors(data.errors, 'update schema')
+            error: this.processGraphQLErrors(errors, 'update schema')
           };
         }
 
@@ -565,20 +596,24 @@ export class DgraphClient {
         }
 
         const data = proxyResponse.data;
-
-        if (data.errors) {
+        
+        // Check for GraphQL errors in the response body even if status is 200
+        if (data.errors || (data.data?.errors && data.data.errors.length > 0)) {
+          const errors = data.errors || data.data.errors;
           return {
-            error: this.processGraphQLErrors(data.errors, 'execute query')
+            error: this.processGraphQLErrors(errors, 'execute query')
           };
         }
 
         return { data: data.data as T };
       } else {
         const data = await response.json();
-
-        if (data.errors) {
+        
+        // Check for GraphQL errors in the response body even if status is 200
+        if (data.errors || (data.data?.errors && data.data.errors.length > 0)) {
+          const errors = data.errors || data.data.errors;
           return {
-            error: this.processGraphQLErrors(data.errors, 'execute query')
+            error: this.processGraphQLErrors(errors, 'execute query')
           };
         }
 
@@ -595,4 +630,3 @@ export class DgraphClient {
     }
   }
 }
-
