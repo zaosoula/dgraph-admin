@@ -1,5 +1,5 @@
 <script setup lang="ts">
-import { ref, reactive } from 'vue'
+import { ref, reactive, onMounted } from 'vue'
 import { useConnectionsStore } from '@/stores/connections'
 import { useCredentialStorage } from '@/composables/useCredentialStorage'
 import { useDgraphClient } from '@/composables/useDgraphClient'
@@ -30,22 +30,80 @@ const formState = reactive({
   useUnifiedAuth: props.connection?.credentials.useUnifiedAuth ?? true,
   credentials: {
     graphql: {
-      method: props.connection?.credentials.graphql?.method || 'none' as AuthMethod,
-      username: props.connection?.credentials.graphql?.username || '',
-      password: props.connection?.credentials.graphql?.password || '',
-      apiKey: props.connection?.credentials.graphql?.apiKey || '',
-      token: props.connection?.credentials.graphql?.token || '',
-      authToken: props.connection?.credentials.graphql?.authToken || ''
+      method: 'none' as AuthMethod,
+      username: '',
+      password: '',
+      apiKey: '',
+      token: '',
+      authToken: ''
     },
     admin: {
-      method: props.connection?.credentials.admin?.method || 'none' as AuthMethod,
-      username: props.connection?.credentials.admin?.username || '',
-      password: props.connection?.credentials.admin?.password || '',
-      apiKey: props.connection?.credentials.admin?.apiKey || '',
-      token: props.connection?.credentials.admin?.token || '',
-      authToken: props.connection?.credentials.admin?.authToken || ''
+      method: 'none' as AuthMethod,
+      username: '',
+      password: '',
+      apiKey: '',
+      token: '',
+      authToken: ''
     },
     useUnifiedAuth: props.connection?.credentials.useUnifiedAuth ?? true
+  }
+})
+
+// Load credentials when editing a connection
+onMounted(() => {
+  if (props.connection) {
+    // Load credentials from storage if editing an existing connection
+    const storedCredentials = credentialStorage.getCredentials(props.connection.id)
+    
+    if (storedCredentials) {
+      // Determine the authentication method based on the stored credentials
+      if (storedCredentials.graphql) {
+        const graphql = storedCredentials.graphql
+        
+        // Set the method based on which credential is present
+        if (graphql.username && graphql.password) {
+          formState.credentials.graphql.method = 'basic'
+          formState.credentials.graphql.username = graphql.username
+          formState.credentials.graphql.password = graphql.password
+        } else if (graphql.token) {
+          formState.credentials.graphql.method = 'token'
+          formState.credentials.graphql.token = graphql.token
+        } else if (graphql.apiKey) {
+          formState.credentials.graphql.method = 'api-key'
+          formState.credentials.graphql.apiKey = graphql.apiKey
+        } else if (graphql.authToken) {
+          formState.credentials.graphql.method = 'auth-token'
+          formState.credentials.graphql.authToken = graphql.authToken
+        } else {
+          formState.credentials.graphql.method = 'none'
+        }
+      }
+      
+      if (storedCredentials.admin) {
+        const admin = storedCredentials.admin
+        
+        // Set the method based on which credential is present
+        if (admin.username && admin.password) {
+          formState.credentials.admin.method = 'basic'
+          formState.credentials.admin.username = admin.username
+          formState.credentials.admin.password = admin.password
+        } else if (admin.token) {
+          formState.credentials.admin.method = 'token'
+          formState.credentials.admin.token = admin.token
+        } else if (admin.apiKey) {
+          formState.credentials.admin.method = 'api-key'
+          formState.credentials.admin.apiKey = admin.apiKey
+        } else if (admin.authToken) {
+          formState.credentials.admin.method = 'auth-token'
+          formState.credentials.admin.authToken = admin.authToken
+        } else {
+          formState.credentials.admin.method = 'none'
+        }
+      }
+      
+      // Set the unified auth flag
+      formState.useUnifiedAuth = storedCredentials.useUnifiedAuth
+    }
   }
 })
 
@@ -139,10 +197,11 @@ const testConnection = async () => {
       formState.credentials.admin.method = 'none'
     }
     
-    // If using unified auth, copy graphql auth to admin
+    // Create clean credentials objects with only the relevant fields based on the method
+    const graphqlCredentials = createCredentialsObject(formState.credentials.graphql)
     const adminCredentials = formState.useUnifiedAuth 
-      ? { ...formState.credentials.graphql } 
-      : formState.credentials.admin
+      ? createCredentialsObject(formState.credentials.graphql) 
+      : createCredentialsObject(formState.credentials.admin)
     
     const tempConnection: Connection = {
       id: props.connection?.id || 'temp-id',
@@ -150,7 +209,7 @@ const testConnection = async () => {
       type: formState.type,
       url: formState.url,
       credentials: {
-        graphql: formState.credentials.graphql,
+        graphql: graphqlCredentials,
         admin: adminCredentials,
         useUnifiedAuth: formState.useUnifiedAuth
       },
@@ -190,10 +249,16 @@ const saveConnection = async () => {
       formState.credentials.admin.method = 'none'
     }
     
+    // Create clean credentials objects with only the relevant fields based on the method
+    const graphqlCredentials = createCredentialsObject(formState.credentials.graphql)
+    const adminCredentials = formState.useUnifiedAuth 
+      ? createCredentialsObject(formState.credentials.graphql) 
+      : createCredentialsObject(formState.credentials.admin)
+    
     // Prepare credentials based on unified auth setting
     const credentials = {
-      graphql: formState.credentials.graphql,
-      admin: formState.useUnifiedAuth ? { ...formState.credentials.graphql } : formState.credentials.admin,
+      graphql: graphqlCredentials,
+      admin: adminCredentials,
       useUnifiedAuth: formState.useUnifiedAuth
     }
     
@@ -237,6 +302,29 @@ const saveConnection = async () => {
   } finally {
     isLoading.value = false
   }
+}
+
+// Helper function to create a clean credentials object based on the authentication method
+const createCredentialsObject = (credentials: any) => {
+  const result: any = { method: credentials.method }
+  
+  switch (credentials.method) {
+    case 'basic':
+      result.username = credentials.username
+      result.password = credentials.password
+      break
+    case 'token':
+      result.token = credentials.token
+      break
+    case 'api-key':
+      result.apiKey = credentials.apiKey
+      break
+    case 'auth-token':
+      result.authToken = credentials.authToken
+      break
+  }
+  
+  return result
 }
 
 // Cancel form
