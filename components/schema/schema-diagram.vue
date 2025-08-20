@@ -16,7 +16,6 @@ const isLoading = ref(false)
 const error = ref<string | null>(null)
 const schemaText = ref<string>('')
 const containerRef = ref<HTMLDivElement | null>(null)
-const debugInfo = ref<string | null>(null)
 
 // Graph data structure
 type GraphNode = {
@@ -63,22 +62,25 @@ const dgraphDirectives = [
 
 // Preprocess schema to handle Dgraph custom directives
 const preprocessSchema = (schema: string): string => {
-  // First, add directive definitions for all Dgraph custom directives
-  let processedSchema = schema
+  try {
+    // First, add directive definitions for all Dgraph custom directives
+    let processedSchema = schema
 
-  // Add directive definitions at the beginning of the schema
-  let directiveDefinitions = ''
-  dgraphDirectives.forEach(directive => {
-    // Define each directive with a flexible signature that accepts any arguments
-    directiveDefinitions += `directive @${directive} on OBJECT | FIELD_DEFINITION | INTERFACE | SCALAR | ENUM\n`
-  })
+    // Add directive definitions at the beginning of the schema
+    let directiveDefinitions = ''
+    dgraphDirectives.forEach(directive => {
+      // Define each directive with a flexible signature that accepts any arguments
+      directiveDefinitions += `directive @${directive} on OBJECT | FIELD_DEFINITION | INTERFACE | SCALAR | ENUM\n`
+    })
 
-  // Add the directive definitions to the schema
-  processedSchema = directiveDefinitions + processedSchema
-
-  debugInfo.value = `Preprocessed schema with ${dgraphDirectives.length} Dgraph directive definitions`
-  
-  return processedSchema
+    // Add the directive definitions to the schema
+    processedSchema = directiveDefinitions + processedSchema
+    
+    return processedSchema
+  } catch (err) {
+    console.error('Error preprocessing schema:', err)
+    return schema
+  }
 }
 
 // Load schema from Dgraph
@@ -90,13 +92,11 @@ const loadSchema = async () => {
   
   isLoading.value = true
   error.value = null
-  debugInfo.value = null
   
   try {
     // If schema is provided via props, use it
     if (props.schema) {
       schemaText.value = props.schema
-      debugInfo.value = `Using schema from props (${props.schema.length} characters)`
       processSchema()
       return
     }
@@ -106,20 +106,17 @@ const loadSchema = async () => {
     
     if (result.error) {
       error.value = result.error.message
-      debugInfo.value = JSON.stringify(result.error, null, 2)
       return
     }
     
     if (result.data?.schema) {
       schemaText.value = result.data.schema
-      debugInfo.value = `Received schema (${schemaText.value.length} characters)`
       processSchema()
     } else {
       error.value = 'No schema returned from Dgraph'
     }
   } catch (err) {
     error.value = err instanceof Error ? err.message : String(err)
-    debugInfo.value = `Error: ${error.value}`
   } finally {
     isLoading.value = false
   }
@@ -128,7 +125,7 @@ const loadSchema = async () => {
 // Process GraphQL schema to create graph structure
 const processSchema = () => {
   if (!schemaText.value) {
-    debugInfo.value = 'No schema to process'
+    error.value = 'No schema to process'
     return
   }
   
@@ -201,21 +198,19 @@ const processSchema = () => {
       graphData.nodes.push(node)
     })
     
-    debugInfo.value = `Processed ${graphData.nodes.length} nodes and ${graphData.links.length} links`
-    
     nextTick(() => {
       renderGraph(graphData)
     })
   } catch (err) {
     error.value = `Error processing schema: ${err instanceof Error ? err.message : String(err)}`
-    debugInfo.value = `Processing error: ${error.value}`
+    console.error('Schema processing error:', err)
   }
 }
 
 // Render the graph using D3.js
 const renderGraph = (data: GraphData) => {
   if (!containerRef.value) {
-    debugInfo.value = 'Container reference is null, cannot render graph'
+    console.error('Container reference is null, cannot render graph')
     return
   }
   
@@ -236,8 +231,6 @@ const renderGraph = (data: GraphData) => {
     
     const width = containerRef.value.clientWidth || 800
     const height = 600
-    
-    debugInfo.value = `Rendering graph with dimensions ${width}x${height}`
     
     // Create SVG container
     const svg = d3.select(containerRef.value)
@@ -412,11 +405,9 @@ const renderGraph = (data: GraphData) => {
       .translate(-width / 2, -height / 2)
     
     svg.call((zoom as any).transform, initialTransform)
-    
-    debugInfo.value = `Graph rendered successfully with ${data.nodes.length} nodes`
   } catch (err) {
     error.value = `Error rendering graph: ${err instanceof Error ? err.message : String(err)}`
-    debugInfo.value = `Rendering error: ${error.value}`
+    console.error('Graph rendering error:', err)
   }
 }
 
@@ -507,14 +498,6 @@ onMounted(() => {
     
     <div v-else class="flex-1 border rounded-md overflow-hidden">
       <div ref="containerRef" class="w-full h-full" style="min-height: 600px;"></div>
-    </div>
-    
-    <!-- Debug info (only visible in development) -->
-    <div v-if="debugInfo && import.meta.env.DEV" class="mt-2 p-2 bg-gray-100 text-xs rounded">
-      <details>
-        <summary>Debug Info</summary>
-        <pre>{{ debugInfo }}</pre>
-      </details>
     </div>
   </div>
 </template>
