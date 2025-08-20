@@ -7,6 +7,7 @@ A web-based admin interface for managing Dgraph instances.
 - Manage multiple Dgraph connections
 - Securely store credentials in your browser
 - Edit GraphQL schema with syntax highlighting
+- Visualize GraphQL schema as interactive UML diagram
 - Compare schema versions with diff view
 - Track schema history
 
@@ -77,4 +78,3 @@ All credentials are encrypted before being stored in your browser. No data is se
 ## License
 
 [MIT](LICENSE)
-
