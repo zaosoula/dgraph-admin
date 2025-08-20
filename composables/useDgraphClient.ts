@@ -21,6 +21,23 @@ export const useDgraphClient = () => {
     }
     
     try {
+      // Get stored credentials if the connection is secure
+      if (activeConnection.isSecure) {
+        const storedCredentials = credentialStorage.getCredentials(activeConnection.id)
+        
+        if (storedCredentials) {
+          // Create a new connection object with the stored credentials
+          const connectionWithCredentials = {
+            ...activeConnection,
+            credentials: storedCredentials
+          }
+          
+          client.value = new DgraphClient(connectionWithCredentials)
+          return true
+        }
+      }
+      
+      // If not secure or no stored credentials, use the connection as is
       client.value = new DgraphClient(activeConnection)
       return true
     } catch (error) {
@@ -46,7 +63,22 @@ export const useDgraphClient = () => {
     })
     
     try {
-      const testClient = new DgraphClient(connectionToTest)
+      let connectionWithCredentials = connectionToTest;
+      
+      // Get stored credentials if the connection is secure
+      if (connectionToTest.isSecure) {
+        const storedCredentials = credentialStorage.getCredentials(connectionToTest.id)
+        
+        if (storedCredentials) {
+          // Create a new connection object with the stored credentials
+          connectionWithCredentials = {
+            ...connectionToTest,
+            credentials: storedCredentials
+          }
+        }
+      }
+      
+      const testClient = new DgraphClient(connectionWithCredentials)
       const isConnected = await testClient.testConnection()
       
       // Update connection state
@@ -111,4 +143,3 @@ export const useDgraphClient = () => {
     executeQuery
   }
 }
-
