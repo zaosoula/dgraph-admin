@@ -51,6 +51,10 @@ export class DgraphClient {
       this.headers['X-Dgraph-ApiKey'] = credentials.apiKey
     }
     
+    if (credentials.authToken) {
+      this.headers['X-Dgraph-AuthToken'] = credentials.authToken
+    }
+    
     if (credentials.token) {
       this.headers['Authorization'] = `Bearer ${credentials.token}`
     }

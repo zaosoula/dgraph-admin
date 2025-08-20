@@ -31,7 +31,8 @@ const formState = reactive({
     username: props.connection?.credentials.username || '',
     password: props.connection?.credentials.password || '',
     apiKey: props.connection?.credentials.apiKey || '',
-    token: props.connection?.credentials.token || ''
+    token: props.connection?.credentials.token || '',
+    authToken: props.connection?.credentials.authToken || ''
   }
 })
 
@@ -246,8 +247,17 @@ const cancelForm = () => {
         />
       </div>
       
+      <div class="space-y-2">
+        <label for="authToken" class="text-sm font-medium">Auth Token (X-Dgraph-AuthToken)</label>
+        <UiInput 
+          id="authToken" 
+          v-model="formState.credentials.authToken" 
+          placeholder="Auth Token"
+        />
+      </div>
+      
       <p class="text-xs text-muted-foreground">
-        Note: Provide either username/password, API key, or access token based on your Dgraph instance's authentication method.
+        Note: Provide either username/password, API key, access token, or auth token based on your Dgraph instance's authentication method.
       </p>
     </div>
     
@@ -281,4 +291,3 @@ const cancelForm = () => {
     </div>
   </div>
 </template>
-

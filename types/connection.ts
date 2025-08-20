@@ -5,6 +5,7 @@ export type ConnectionCredentials = {
   password?: string
   apiKey?: string
   token?: string
+  authToken?: string
 }
 
 export type Connection = {
@@ -24,4 +25,3 @@ export type ConnectionState = {
   error: string | null
   lastChecked: Date | null
 }
-
