@@ -145,7 +145,7 @@ const applySelectedVersion = async () => {
       <!-- Main Editor/Diff Area -->
       <div class="md:col-span-3">
         <div v-if="activeTab === 'editor'" class="h-[600px]">
-          <SchemaSchemaEditor 
+          <SchemaEditor 
             v-model:schema="currentSchema"
             @update:schema="handleSchemaUpdate"
             @save="handleSchemaSave"
@@ -153,7 +153,7 @@ const applySelectedVersion = async () => {
         </div>
         
         <div v-else-if="activeTab === 'diff' && selectedVersionId" class="h-[600px]">
-          <SchemaSchemaEditor 
+          <SchemaEditor 
             v-model:schema="currentSchema"
             @update:schema="handleSchemaUpdate"
             @save="handleSchemaSave"
@@ -210,4 +210,3 @@ const applySelectedVersion = async () => {
     </div>
   </div>
 </template>
-
