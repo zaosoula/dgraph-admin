@@ -3829,6 +3829,23 @@ __metadata:
   languageName: node
   linkType: hard
 
+"cm6-graphql@npm:^0.2.1":
+  version: 0.2.1
+  resolution: "cm6-graphql@npm:0.2.1"
+  dependencies:
+    graphql-language-service: "npm:^5.3.0"
+  peerDependencies:
+    "@codemirror/autocomplete": ^6.0.0
+    "@codemirror/language": ^6.0.0
+    "@codemirror/lint": ^6.0.0
+    "@codemirror/state": ^6.0.0
+    "@codemirror/view": ^6.0.0
+    "@lezer/highlight": ^1.0.0
+    graphql: ^15.5.0 || ^16.0.0 || ^17.0.0
+  checksum: 10c0/33b4d4634e25f67a126a8e0a9d4f4c927b4554f0fe7e0b512f494703ee0c600a332c7ad673c1968174e08f305c767c6d6cd6f59d88bceee10c7f16507504fca7
+  languageName: node
+  linkType: hard
+
 "co@npm:^4.6.0":
   version: 4.6.0
   resolution: "co@npm:4.6.0"
@@ -3836,7 +3853,7 @@ __metadata:
   languageName: node
   linkType: hard
 
-"codemirror@npm:^6.0.1":
+"codemirror@npm:^6.0.2":
   version: 6.0.2
   resolution: "codemirror@npm:6.0.2"
   dependencies:
@@ -4681,6 +4698,13 @@ __metadata:
   languageName: node
   linkType: hard
 
+"debounce-promise@npm:^3.1.2":
+  version: 3.1.2
+  resolution: "debounce-promise@npm:3.1.2"
+  checksum: 10c0/68d22b2ed5e8c890643c1b02dadffc9a6a31ec6db225530f34dfeef14112977bedf735d5141e29264ce608ec59375665d582f0013362fa61c7a92d3c0f2f410d
+  languageName: node
+  linkType: hard
+
 "debug@npm:4, debug@npm:^4.1.0, debug@npm:^4.1.1, debug@npm:^4.3.1, debug@npm:^4.3.2, debug@npm:^4.3.4, debug@npm:^4.3.5, debug@npm:^4.3.6, debug@npm:^4.4.0, debug@npm:^4.4.1":
   version: 4.4.1
   resolution: "debug@npm:4.4.1"
@@ -4953,7 +4977,8 @@ __metadata:
     "@vueuse/core": "npm:^10.7.0"
     class-variance-authority: "npm:^0.7.0"
     clsx: "npm:^2.0.0"
-    codemirror: "npm:^6.0.1"
+    cm6-graphql: "npm:^0.2.1"
+    codemirror: "npm:^6.0.2"
     crypto-js: "npm:^4.2.0"
     d3: "npm:^7.9.0"
     diff: "npm:^5.1.0"
@@ -6009,6 +6034,21 @@ __metadata:
   version: 4.2.11
   resolution: "graceful-fs@npm:4.2.11"
   checksum: 10c0/386d011a553e02bc594ac2ca0bd6d9e4c22d7fa8cfbfc448a6d148c59ea881b092db9dbe3547ae4b88e55f1b01f7c4a2ecc53b310c042793e63aa44cf6c257f2
+  languageName: node
+  linkType: hard
+
+"graphql-language-service@npm:^5.3.0":
+  version: 5.5.0
+  resolution: "graphql-language-service@npm:5.5.0"
+  dependencies:
+    debounce-promise: "npm:^3.1.2"
+    nullthrows: "npm:^1.0.0"
+    vscode-languageserver-types: "npm:^3.17.1"
+  peerDependencies:
+    graphql: ^15.5.0 || ^16.0.0 || ^17.0.0
+  bin:
+    graphql: dist/temp-bin.js
+  checksum: 10c0/edac04ef2ebc33cb6dcb07bbc6ae8c92ad952e3f830782e5dd89cb57f3ee93ed50f750c8c2c4636e1e9841eb6c4429892abbf22a85c34f900d0e6f0c74554047
   languageName: node
   linkType: hard
 
@@ -7690,6 +7730,13 @@ __metadata:
   dependencies:
     boolbase: "npm:^1.0.0"
   checksum: 10c0/5fee7ff309727763689cfad844d979aedd2204a817fbaaf0e1603794a7c20db28548d7b024692f953557df6ce4a0ee4ae46cd8ebd9b36cfb300b9226b567c479
+  languageName: node
+  linkType: hard
+
+"nullthrows@npm:^1.0.0":
+  version: 1.1.1
+  resolution: "nullthrows@npm:1.1.1"
+  checksum: 10c0/56f34bd7c3dcb3bd23481a277fa22918120459d3e9d95ca72976c72e9cac33a97483f0b95fc420e2eb546b9fe6db398273aba9a938650cdb8c98ee8f159dcb30
   languageName: node
   linkType: hard
 
@@ -10801,6 +10848,13 @@ __metadata:
   bin:
     vite: bin/vite.js
   checksum: 10c0/a0aa418beab80673dc9a3e9d1fa49472955d6ef9d41a4c9c6bd402953f411346f612864dae267adfb2bb8ceeb894482369316ffae5816c84fd45990e352b727d
+  languageName: node
+  linkType: hard
+
+"vscode-languageserver-types@npm:^3.17.1":
+  version: 3.17.5
+  resolution: "vscode-languageserver-types@npm:3.17.5"
+  checksum: 10c0/1e1260de79a2cc8de3e46f2e0182cdc94a7eddab487db5a3bd4ee716f67728e685852707d72c059721ce500447be9a46764a04f0611e94e4321ffa088eef36f8
   languageName: node
   linkType: hard
 
