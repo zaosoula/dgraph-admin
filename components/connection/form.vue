@@ -27,12 +27,23 @@ const formState = reactive({
   type: props.connection?.type || 'http' as ConnectionType,
   url: props.connection?.url || '',
   isSecure: props.connection?.isSecure || false,
+  useUnifiedAuth: props.connection?.credentials.useUnifiedAuth ?? true,
   credentials: {
-    username: props.connection?.credentials.username || '',
-    password: props.connection?.credentials.password || '',
-    apiKey: props.connection?.credentials.apiKey || '',
-    token: props.connection?.credentials.token || '',
-    authToken: props.connection?.credentials.authToken || ''
+    graphql: {
+      username: props.connection?.credentials.graphql?.username || '',
+      password: props.connection?.credentials.graphql?.password || '',
+      apiKey: props.connection?.credentials.graphql?.apiKey || '',
+      token: props.connection?.credentials.graphql?.token || '',
+      authToken: props.connection?.credentials.graphql?.authToken || ''
+    },
+    admin: {
+      username: props.connection?.credentials.admin?.username || '',
+      password: props.connection?.credentials.admin?.password || '',
+      apiKey: props.connection?.credentials.admin?.apiKey || '',
+      token: props.connection?.credentials.admin?.token || '',
+      authToken: props.connection?.credentials.admin?.authToken || ''
+    },
+    useUnifiedAuth: props.connection?.credentials.useUnifiedAuth ?? true
   }
 })
 
@@ -84,7 +95,11 @@ const testConnection = async () => {
       name: formState.name,
       type: formState.type,
       url: formState.url,
-      credentials: formState.credentials,
+      credentials: {
+        graphql: formState.credentials.graphql,
+        admin: formState.useUnifiedAuth ? formState.credentials.graphql : formState.credentials.admin,
+        useUnifiedAuth: formState.useUnifiedAuth
+      },
       isSecure: formState.isSecure,
       createdAt: props.connection?.createdAt || new Date(),
       updatedAt: new Date()
@@ -115,6 +130,13 @@ const saveConnection = async () => {
   try {
     let connectionId: string
     
+    // Prepare credentials based on unified auth setting
+    const credentials = {
+      graphql: formState.credentials.graphql,
+      admin: formState.useUnifiedAuth ? formState.credentials.graphql : formState.credentials.admin,
+      useUnifiedAuth: formState.useUnifiedAuth
+    }
+    
     // Create or update connection
     if (props.connection) {
       // Update existing connection
@@ -131,14 +153,18 @@ const saveConnection = async () => {
         name: formState.name,
         type: formState.type,
         url: formState.url,
-        credentials: { }, // Empty credentials in the store
+        credentials: { 
+          graphql: {},
+          admin: {},
+          useUnifiedAuth: formState.useUnifiedAuth
+        }, // Empty credentials in the store
         isSecure: formState.isSecure
       })
     }
     
     // Save credentials separately
     if (formState.isSecure) {
-      credentialStorage.saveCredentials(connectionId, formState.credentials)
+      credentialStorage.saveCredentials(connectionId, credentials)
     }
     
     emit('saved', connectionId)
@@ -208,56 +234,120 @@ const cancelForm = () => {
     </div>
     
     <div v-if="formState.isSecure" class="space-y-4 border rounded-md p-4">
-      <h3 class="text-sm font-medium">Authentication</h3>
-      
-      <div class="space-y-2">
-        <label for="username" class="text-sm font-medium">Username</label>
-        <UiInput 
-          id="username" 
-          v-model="formState.credentials.username" 
-          placeholder="Username"
+      <div class="flex items-center space-x-2 mb-4">
+        <input 
+          id="useUnifiedAuth" 
+          type="checkbox" 
+          v-model="formState.useUnifiedAuth"
+          class="h-4 w-4 rounded border-gray-300 text-primary focus:ring-primary"
         />
+        <label for="useUnifiedAuth" class="text-sm font-medium">Use same authentication for both GraphQL and Admin endpoints</label>
       </div>
       
-      <div class="space-y-2">
-        <label for="password" class="text-sm font-medium">Password</label>
-        <UiInput 
-          id="password" 
-          type="password" 
-          v-model="formState.credentials.password" 
-          placeholder="Password"
-        />
+      <!-- GraphQL Authentication -->
+      <div class="border-b pb-4 mb-4">
+        <h3 class="text-sm font-medium mb-4">GraphQL Endpoint Authentication</h3>
+        
+        <div class="space-y-2">
+          <label for="graphql-username" class="text-sm font-medium">Username</label>
+          <UiInput 
+            id="graphql-username" 
+            v-model="formState.credentials.graphql.username" 
+            placeholder="Username"
+          />
+        </div>
+        
+        <div class="space-y-2">
+          <label for="graphql-password" class="text-sm font-medium">Password</label>
+          <UiInput 
+            id="graphql-password" 
+            type="password" 
+            v-model="formState.credentials.graphql.password" 
+            placeholder="Password"
+          />
+        </div>
+        
+        <div class="space-y-2">
+          <label for="graphql-apiKey" class="text-sm font-medium">API Key</label>
+          <UiInput 
+            id="graphql-apiKey" 
+            v-model="formState.credentials.graphql.apiKey" 
+            placeholder="API Key"
+          />
+        </div>
+        
+        <div class="space-y-2">
+          <label for="graphql-token" class="text-sm font-medium">Access Token</label>
+          <UiInput 
+            id="graphql-token" 
+            v-model="formState.credentials.graphql.token" 
+            placeholder="Access Token"
+          />
+        </div>
+        
+        <div class="space-y-2">
+          <label for="graphql-authToken" class="text-sm font-medium">Auth Token (X-Dgraph-AuthToken)</label>
+          <UiInput 
+            id="graphql-authToken" 
+            v-model="formState.credentials.graphql.authToken" 
+            placeholder="Auth Token"
+          />
+        </div>
       </div>
       
-      <div class="space-y-2">
-        <label for="apiKey" class="text-sm font-medium">API Key</label>
-        <UiInput 
-          id="apiKey" 
-          v-model="formState.credentials.apiKey" 
-          placeholder="API Key"
-        />
+      <!-- Admin Authentication (only shown when not using unified auth) -->
+      <div v-if="!formState.useUnifiedAuth">
+        <h3 class="text-sm font-medium mb-4">Admin Endpoint Authentication</h3>
+        
+        <div class="space-y-2">
+          <label for="admin-username" class="text-sm font-medium">Username</label>
+          <UiInput 
+            id="admin-username" 
+            v-model="formState.credentials.admin.username" 
+            placeholder="Username"
+          />
+        </div>
+        
+        <div class="space-y-2">
+          <label for="admin-password" class="text-sm font-medium">Password</label>
+          <UiInput 
+            id="admin-password" 
+            type="password" 
+            v-model="formState.credentials.admin.password" 
+            placeholder="Password"
+          />
+        </div>
+        
+        <div class="space-y-2">
+          <label for="admin-apiKey" class="text-sm font-medium">API Key</label>
+          <UiInput 
+            id="admin-apiKey" 
+            v-model="formState.credentials.admin.apiKey" 
+            placeholder="API Key"
+          />
+        </div>
+        
+        <div class="space-y-2">
+          <label for="admin-token" class="text-sm font-medium">Access Token</label>
+          <UiInput 
+            id="admin-token" 
+            v-model="formState.credentials.admin.token" 
+            placeholder="Access Token"
+          />
+        </div>
+        
+        <div class="space-y-2">
+          <label for="admin-authToken" class="text-sm font-medium">Auth Token (X-Dgraph-AuthToken)</label>
+          <UiInput 
+            id="admin-authToken" 
+            v-model="formState.credentials.admin.authToken" 
+            placeholder="Auth Token"
+          />
+        </div>
       </div>
       
-      <div class="space-y-2">
-        <label for="token" class="text-sm font-medium">Access Token</label>
-        <UiInput 
-          id="token" 
-          v-model="formState.credentials.token" 
-          placeholder="Access Token"
-        />
-      </div>
-      
-      <div class="space-y-2">
-        <label for="authToken" class="text-sm font-medium">Auth Token (X-Dgraph-AuthToken)</label>
-        <UiInput 
-          id="authToken" 
-          v-model="formState.credentials.authToken" 
-          placeholder="Auth Token"
-        />
-      </div>
-      
-      <p class="text-xs text-muted-foreground">
-        Note: Provide either username/password, API key, access token, or auth token based on your Dgraph instance's authentication method.
+      <p class="text-xs text-muted-foreground mt-4">
+        Note: For each endpoint, provide either username/password, API key, access token, or auth token based on your Dgraph instance's authentication method.
       </p>
     </div>
     

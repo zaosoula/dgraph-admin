@@ -31,7 +31,8 @@ export type ProxyResponse<T> = {
 
 export class DgraphClient {
   private connection: Connection
-  private headers: Record<string, string> = {}
+  private graphqlHeaders: Record<string, string> = {}
+  private adminHeaders: Record<string, string> = {}
   private useProxy: boolean = true
   
   constructor(connection: Connection) {
@@ -40,29 +41,61 @@ export class DgraphClient {
   }
   
   private setupHeaders() {
-    this.headers = {
+    // Base headers
+    this.graphqlHeaders = {
+      'Content-Type': 'application/json',
+    }
+    
+    this.adminHeaders = {
       'Content-Type': 'application/json',
     }
     
     // Add authentication headers based on credentials
     const { credentials } = this.connection
     
-    if (credentials.apiKey) {
-      this.headers['X-Dgraph-ApiKey'] = credentials.apiKey
+    // Setup GraphQL endpoint headers
+    if (credentials.graphql.apiKey) {
+      this.graphqlHeaders['X-Dgraph-ApiKey'] = credentials.graphql.apiKey
     }
     
-    if (credentials.authToken) {
-      this.headers['X-Dgraph-AuthToken'] = credentials.authToken
+    if (credentials.graphql.authToken) {
+      this.graphqlHeaders['X-Dgraph-AuthToken'] = credentials.graphql.authToken
     }
     
-    if (credentials.token) {
-      this.headers['Authorization'] = `Bearer ${credentials.token}`
+    if (credentials.graphql.token) {
+      this.graphqlHeaders['Authorization'] = `Bearer ${credentials.graphql.token}`
     }
     
-    if (credentials.username && credentials.password) {
-      const base64Credentials = btoa(`${credentials.username}:${credentials.password}`)
-      this.headers['Authorization'] = `Basic ${base64Credentials}`
+    if (credentials.graphql.username && credentials.graphql.password) {
+      const base64Credentials = btoa(`${credentials.graphql.username}:${credentials.graphql.password}`)
+      this.graphqlHeaders['Authorization'] = `Basic ${base64Credentials}`
     }
+    
+    // Setup Admin endpoint headers
+    if (credentials.admin.apiKey) {
+      this.adminHeaders['X-Dgraph-ApiKey'] = credentials.admin.apiKey
+    }
+    
+    if (credentials.admin.authToken) {
+      this.adminHeaders['X-Dgraph-AuthToken'] = credentials.admin.authToken
+    }
+    
+    if (credentials.admin.token) {
+      this.adminHeaders['Authorization'] = `Bearer ${credentials.admin.token}`
+    }
+    
+    if (credentials.admin.username && credentials.admin.password) {
+      const base64Credentials = btoa(`${credentials.admin.username}:${credentials.admin.password}`)
+      this.adminHeaders['Authorization'] = `Basic ${base64Credentials}`
+    }
+  }
+  
+  // Get headers based on endpoint
+  private getHeaders(endpoint: string): Record<string, string> {
+    if (endpoint.includes('admin')) {
+      return this.adminHeaders
+    }
+    return this.graphqlHeaders
   }
   
   // Get the base URL for API requests (using proxy or direct)
@@ -84,7 +117,7 @@ export class DgraphClient {
         const healthUrl = this.getBaseUrl('health');
         const healthResponse = await fetch(healthUrl, {
           method: 'GET',
-          headers: this.headers
+          headers: this.getHeaders('health')
         });
         
         if (this.useProxy) {
@@ -105,10 +138,7 @@ export class DgraphClient {
       
       const adminResponse = await fetch(adminUrl, {
         method: 'POST',
-        headers: {
-          ...this.headers,
-          'Content-Type': 'application/json'
-        },
+        headers: this.getHeaders('admin'),
         body: JSON.stringify({ query })
       });
       
@@ -139,10 +169,7 @@ export class DgraphClient {
       const url = this.getBaseUrl('admin');
       const response = await fetch(url, {
         method: 'POST',
-        headers: {
-          ...this.headers,
-          'Content-Type': 'application/json'
-        },
+        headers: this.getHeaders('admin'),
         body: JSON.stringify({ query })
       });
       
@@ -244,10 +271,7 @@ export class DgraphClient {
       const url = this.getBaseUrl('admin');
       const response = await fetch(url, {
         method: 'POST',
-        headers: {
-          ...this.headers,
-          'Content-Type': 'application/json'
-        },
+        headers: this.getHeaders('admin'),
         body: JSON.stringify({
           query: mutation,
           variables
@@ -329,7 +353,7 @@ export class DgraphClient {
       const url = this.getBaseUrl('graphql');
       const response = await fetch(url, {
         method: 'POST',
-        headers: this.headers,
+        headers: this.getHeaders('graphql'),
         body: JSON.stringify({
           query,
           variables
