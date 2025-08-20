@@ -4,6 +4,7 @@ import { useConnectionsStore } from '@/stores/connections'
 import { useCredentialStorage } from '@/composables/useCredentialStorage'
 import { useDgraphClient } from '@/composables/useDgraphClient'
 import type { Connection, ConnectionType, ConnectionCredentials } from '@/types/connection'
+import type { ConnectionTestResult } from '@/utils/dgraph-client'
 
 const props = defineProps<{
   connection?: Connection
@@ -19,7 +20,7 @@ const credentialStorage = useCredentialStorage()
 const dgraphClient = useDgraphClient()
 
 const isLoading = ref(false)
-const testResult = ref<{ success: boolean; message: string } | null>(null)
+const testResult = ref<ConnectionTestResult | null>(null)
 
 // Form state
 const formState = reactive({
@@ -79,6 +80,7 @@ const testConnection = async () => {
   testResult.value = null
   
   try {
+    // Create a temporary connection object for testing
     const tempConnection: Connection = {
       id: props.connection?.id || 'temp-id',
       name: formState.name,
@@ -90,15 +92,23 @@ const testConnection = async () => {
       updatedAt: new Date()
     }
     
-    const isConnected = await dgraphClient.testConnection(tempConnection)
-    
-    testResult.value = {
-      success: isConnected,
-      message: isConnected ? 'Connection successful!' : 'Connection failed. Please check your settings.'
-    }
+    // Use the comprehensive test method
+    testResult.value = await dgraphClient.testConnection(tempConnection)
   } catch (error) {
     testResult.value = {
       success: false,
+      healthCheck: {
+        success: false,
+        message: 'Test failed'
+      },
+      schemaCheck: {
+        success: false,
+        message: 'Test failed'
+      },
+      introspectionCheck: {
+        success: false,
+        message: 'Test failed'
+      },
       message: `Error: ${error instanceof Error ? error.message : String(error)}`
     }
   } finally {
@@ -262,7 +272,27 @@ const cancelForm = () => {
     </div>
     
     <div v-if="testResult" class="p-4 rounded-md" :class="testResult.success ? 'bg-green-50 text-green-700' : 'bg-red-50 text-red-700'">
-      {{ testResult.message }}
+      <div class="font-medium mb-2">{{ testResult.message }}</div>
+      
+      <div class="text-sm space-y-2">
+        <div class="flex items-center" :class="testResult.healthCheck.success ? 'text-green-700' : 'text-red-700'">
+          <span class="mr-2">{{ testResult.healthCheck.success ? '✓' : '✗' }}</span>
+          <span class="font-medium">Health Check:</span>
+          <span class="ml-2">{{ testResult.healthCheck.message }}</span>
+        </div>
+        
+        <div class="flex items-center" :class="testResult.schemaCheck.success ? 'text-green-700' : 'text-red-700'">
+          <span class="mr-2">{{ testResult.schemaCheck.success ? '✓' : '✗' }}</span>
+          <span class="font-medium">Schema Check:</span>
+          <span class="ml-2">{{ testResult.schemaCheck.message }}</span>
+        </div>
+        
+        <div class="flex items-center" :class="testResult.introspectionCheck.success ? 'text-green-700' : 'text-red-700'">
+          <span class="mr-2">{{ testResult.introspectionCheck.success ? '✓' : '✗' }}</span>
+          <span class="font-medium">Introspection Check:</span>
+          <span class="ml-2">{{ testResult.introspectionCheck.message }}</span>
+        </div>
+      </div>
     </div>
     
     <div class="flex justify-end space-x-2">
