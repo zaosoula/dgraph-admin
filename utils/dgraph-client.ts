@@ -138,24 +138,95 @@ export class DgraphClient {
       }
       
       // If health endpoint fails, try the admin endpoint with a simple query
-      const query = `{ __typename }`;
-      const adminUrl = this.getBaseUrl('admin');
-      
-      const adminResponse = await fetch(adminUrl, {
-        method: 'POST',
-        headers: this.getHeaders('admin'),
-        body: JSON.stringify({ query })
-      });
-      
-      if (this.useProxy) {
-        const proxyData = await adminResponse.json() as ProxyResponse<any>;
-        return proxyData.status >= 200 && proxyData.status < 300;
+      try {
+        const result = await this.executeAdminQuery<any>('{ __typename }');
+        return !result.error;
+      } catch (adminError) {
+        console.debug('Admin endpoint check failed, trying GraphQL endpoint:', adminError);
       }
       
-      return adminResponse.ok;
+      // If admin endpoint fails, try the GraphQL endpoint
+      try {
+        const result = await this.executeQuery<any>('{ __typename }');
+        return !result.error;
+      } catch (graphqlError) {
+        console.debug('GraphQL endpoint check failed:', graphqlError);
+      }
+      
+      return false;
     } catch (error) {
       console.error('Connection test failed:', error);
       return false;
+    }
+  }
+  
+  // Execute GraphQL query against the admin endpoint
+  async executeAdminQuery<T>(query: string, variables?: Record<string, any>): Promise<DgraphResponse<T>> {
+    try {
+      const url = this.getBaseUrl('admin');
+      const response = await fetch(url, {
+        method: 'POST',
+        headers: this.getHeaders('admin'),
+        body: JSON.stringify({
+          query,
+          variables
+        })
+      });
+      
+      if (this.useProxy) {
+        const proxyResponse = await response.json() as ProxyResponse<any>;
+        
+        if (proxyResponse.error) {
+          return {
+            error: {
+              message: 'Admin GraphQL query execution failed',
+              details: proxyResponse.error.message
+            }
+          };
+        }
+        
+        if (proxyResponse.status >= 400) {
+          return {
+            error: {
+              message: 'Admin GraphQL query execution failed',
+              details: `Status: ${proxyResponse.status} ${proxyResponse.statusText}`
+            }
+          };
+        }
+        
+        const data = proxyResponse.data;
+        
+        if (data.errors) {
+          return {
+            error: {
+              message: 'Admin GraphQL query execution failed',
+              details: JSON.stringify(data.errors)
+            }
+          };
+        }
+        
+        return { data: data.data as T };
+      } else {
+        const data = await response.json();
+        
+        if (data.errors) {
+          return {
+            error: {
+              message: 'Admin GraphQL query execution failed',
+              details: JSON.stringify(data.errors)
+            }
+          };
+        }
+        
+        return { data: data.data as T };
+      }
+    } catch (error) {
+      return {
+        error: {
+          message: 'Admin GraphQL query execution failed',
+          details: error instanceof Error ? error.message : String(error)
+        }
+      };
     }
   }
   
@@ -171,76 +242,20 @@ export class DgraphClient {
         }
       `;
       
-      const url = this.getBaseUrl('admin');
-      const response = await fetch(url, {
-        method: 'POST',
-        headers: this.getHeaders('admin'),
-        body: JSON.stringify({ query })
-      });
+      const result = await this.executeAdminQuery<{ getGQLSchema: { schema: string } }>(query);
       
-      if (this.useProxy) {
-        const proxyResponse = await response.json() as ProxyResponse<any>;
-        
-        if (proxyResponse.error) {
-          return {
-            error: {
-              message: 'Failed to fetch schema',
-              details: proxyResponse.error.message
-            }
-          };
-        }
-        
-        if (proxyResponse.status >= 400) {
-          return {
-            error: {
-              message: 'Failed to fetch schema',
-              details: `Status: ${proxyResponse.status} ${proxyResponse.statusText}`
-            }
-          };
-        }
-        
-        const data = proxyResponse.data;
-        
-        // Check for GraphQL errors
-        if (data.errors) {
-          return {
-            error: {
-              message: 'Failed to fetch schema',
-              details: JSON.stringify(data.errors)
-            }
-          };
-        }
-        
-        // Extract schema from the response
-        const schema = data.data?.getGQLSchema?.schema || '';
-        return { data: { schema } };
-      } else {
-        if (!response.ok) {
-          const errorText = await response.text();
-          return {
-            error: {
-              message: 'Failed to fetch schema',
-              details: errorText
-            }
-          };
-        }
-        
-        const data = await response.json();
-        
-        // Check for GraphQL errors
-        if (data.errors) {
-          return {
-            error: {
-              message: 'Failed to fetch schema',
-              details: JSON.stringify(data.errors)
-            }
-          };
-        }
-        
-        // Extract schema from the response
-        const schema = data.data?.getGQLSchema?.schema || '';
-        return { data: { schema } };
+      if (result.error) {
+        return {
+          error: {
+            message: 'Failed to fetch schema',
+            details: result.error.details || result.error.message
+          }
+        };
       }
+      
+      // Extract schema from the response
+      const schema = result.data?.getGQLSchema?.schema || '';
+      return { data: { schema } };
     } catch (error) {
       return {
         error: {
@@ -273,75 +288,18 @@ export class DgraphClient {
         }
       };
       
-      const url = this.getBaseUrl('admin');
-      const response = await fetch(url, {
-        method: 'POST',
-        headers: this.getHeaders('admin'),
-        body: JSON.stringify({
-          query: mutation,
-          variables
-        })
-      });
+      const result = await this.executeAdminQuery<{ updateGQLSchema: { gqlSchema: { schema: string } } }>(mutation, variables);
       
-      if (this.useProxy) {
-        const proxyResponse = await response.json() as ProxyResponse<any>;
-        
-        if (proxyResponse.error) {
-          return {
-            error: {
-              message: 'Failed to update schema',
-              details: proxyResponse.error.message
-            }
-          };
-        }
-        
-        if (proxyResponse.status >= 400) {
-          return {
-            error: {
-              message: 'Failed to update schema',
-              details: `Status: ${proxyResponse.status} ${proxyResponse.statusText}`
-            }
-          };
-        }
-        
-        const data = proxyResponse.data;
-        
-        // Check for GraphQL errors
-        if (data.errors) {
-          return {
-            error: {
-              message: 'Failed to update schema',
-              details: JSON.stringify(data.errors)
-            }
-          };
-        }
-        
-        return { data: { success: true } };
-      } else {
-        if (!response.ok) {
-          const errorText = await response.text();
-          return {
-            error: {
-              message: 'Failed to update schema',
-              details: errorText
-            }
-          };
-        }
-        
-        const data = await response.json();
-        
-        // Check for GraphQL errors
-        if (data.errors) {
-          return {
-            error: {
-              message: 'Failed to update schema',
-              details: JSON.stringify(data.errors)
-            }
-          };
-        }
-        
-        return { data: { success: true } };
+      if (result.error) {
+        return {
+          error: {
+            message: 'Failed to update schema',
+            details: result.error.details || result.error.message
+          }
+        };
       }
+      
+      return { data: { success: true } };
     } catch (error) {
       return {
         error: {
