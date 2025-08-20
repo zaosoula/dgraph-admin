@@ -256,34 +256,55 @@ const renderGraph = (data: GraphData) => {
     // Create container for the graph
     const g = svg.append('g')
     
-    // Create force simulation
+    // Improved force simulation with better parameters
     const simulation = d3.forceSimulation(data.nodes as any)
       .force('link', d3.forceLink(data.links as any)
         .id((d: any) => d.id)
-        .distance(150))
-      .force('charge', d3.forceManyBody().strength(-500))
+        .distance(200)) // Increased distance between nodes
+      .force('charge', d3.forceManyBody()
+        .strength(-800)) // Stronger repulsion
       .force('center', d3.forceCenter(width / 2, height / 2))
-      .force('collision', d3.forceCollide().radius(80))
+      .force('collision', d3.forceCollide().radius(100)) // Larger collision radius
+      .force('x', d3.forceX(width / 2).strength(0.05)) // Gentle force toward center x
+      .force('y', d3.forceY(height / 2).strength(0.05)) // Gentle force toward center y
     
-    // Create links
+    // Create links with improved styling
     const link = g.append('g')
       .selectAll('line')
       .data(data.links)
       .join('line')
-      .attr('stroke', '#999')
-      .attr('stroke-opacity', 0.6)
+      .attr('stroke', '#ccc')
+      .attr('stroke-opacity', 0.4)
       .attr('stroke-width', 1)
     
-    // Create link labels
+    // Create link labels with improved positioning and visibility
     const linkLabels = g.append('g')
       .selectAll('text')
       .data(data.links)
       .join('text')
-      .attr('font-size', 10)
+      .attr('font-size', 9)
       .attr('fill', '#666')
+      .attr('text-anchor', 'middle')
+      .attr('dy', -5)
+      .attr('background', 'white')
       .text(d => d.relationship)
     
-    // Create nodes
+    // Add white background to link labels for better readability
+    linkLabels.each(function() {
+      const textElement = d3.select(this)
+      const textBBox = (this as SVGTextElement).getBBox()
+      
+      g.insert('rect', 'text')
+        .attr('x', textBBox.x - 2)
+        .attr('y', textBBox.y - 2)
+        .attr('width', textBBox.width + 4)
+        .attr('height', textBBox.height + 4)
+        .attr('fill', 'white')
+        .attr('fill-opacity', 0.8)
+        .attr('rx', 2)
+    })
+    
+    // Create nodes with improved styling
     const node = g.append('g')
       .selectAll('g')
       .data(data.nodes)
@@ -306,21 +327,23 @@ const renderGraph = (data: GraphData) => {
       return baseHeight + fieldHeight + directiveHeight + moreFieldsHeight
     }
     
-    // Add node rectangles
+    // Add node rectangles with improved styling
     node.append('rect')
-      .attr('width', d => Math.max(d.name.length * 8 + 20, 100))
+      .attr('width', d => Math.max(d.name.length * 8 + 30, 120))
       .attr('height', d => getNodeHeight(d))
-      .attr('rx', 5)
-      .attr('ry', 5)
+      .attr('rx', 6)
+      .attr('ry', 6)
       .attr('fill', d => getNodeColor(d.kind))
-      .attr('stroke', '#333')
-      .attr('stroke-width', 1)
+      .attr('stroke', d => getNodeStrokeColor(d.kind))
+      .attr('stroke-width', 1.5)
+      .attr('filter', 'drop-shadow(1px 1px 2px rgba(0,0,0,0.2))')
     
-    // Add node titles
+    // Add node titles with improved styling
     node.append('text')
       .attr('x', 10)
       .attr('y', 20)
       .attr('font-weight', 'bold')
+      .attr('font-size', 12)
       .text(d => d.name)
     
     // Add directives if any
@@ -331,7 +354,7 @@ const renderGraph = (data: GraphData) => {
         nodeGroup.append('text')
           .attr('x', 10)
           .attr('y', 35)
-          .attr('font-size', 10)
+          .attr('font-size', 9)
           .attr('fill', '#666')
           .text(d.directives.join(' '))
       }
@@ -348,7 +371,7 @@ const renderGraph = (data: GraphData) => {
         nodeGroup.append('text')
           .attr('x', 15)
           .attr('y', 40 + directiveOffset + i * 20)
-          .attr('font-size', 12)
+          .attr('font-size', 11)
           .text(field)
       })
       
@@ -356,10 +379,79 @@ const renderGraph = (data: GraphData) => {
         nodeGroup.append('text')
           .attr('x', 15)
           .attr('y', 40 + directiveOffset + 5 * 20)
-          .attr('font-size', 12)
+          .attr('font-size', 11)
+          .attr('fill', '#666')
           .text(`... ${fields.length - 5} more`)
       }
     })
+    
+    // Add a search box for filtering nodes
+    const searchContainer = d3.select(containerRef.value)
+      .append('div')
+      .attr('class', 'absolute top-4 right-4 bg-white p-2 rounded shadow-md')
+    
+    searchContainer.append('input')
+      .attr('type', 'text')
+      .attr('placeholder', 'Search types...')
+      .attr('class', 'border rounded px-2 py-1 text-sm w-48')
+      .on('input', function() {
+        const searchTerm = this.value.toLowerCase()
+        
+        // Filter nodes based on search term
+        node.style('opacity', d => {
+          if (!searchTerm) return 1
+          return d.name.toLowerCase().includes(searchTerm) ? 1 : 0.2
+        })
+        
+        // Filter links based on connected nodes
+        link.style('opacity', d => {
+          if (!searchTerm) return 0.4
+          const sourceMatches = (d.source as any).name.toLowerCase().includes(searchTerm)
+          const targetMatches = (d.target as any).name.toLowerCase().includes(searchTerm)
+          return sourceMatches || targetMatches ? 0.8 : 0.1
+        })
+        
+        // Filter link labels
+        linkLabels.style('opacity', d => {
+          if (!searchTerm) return 1
+          const sourceMatches = (d.source as any).name.toLowerCase().includes(searchTerm)
+          const targetMatches = (d.target as any).name.toLowerCase().includes(searchTerm)
+          return sourceMatches || targetMatches ? 1 : 0.1
+        })
+      })
+    
+    // Add a reset button
+    searchContainer.append('button')
+      .attr('class', 'ml-2 bg-gray-200 px-2 py-1 rounded text-sm')
+      .text('Reset')
+      .on('click', () => {
+        // Reset search input
+        searchContainer.select('input').property('value', '')
+        
+        // Reset node and link opacity
+        node.style('opacity', 1)
+        link.style('opacity', 0.4)
+        linkLabels.style('opacity', 1)
+        
+        // Reset simulation
+        simulation.alpha(0.3).restart()
+      })
+    
+    // Add a layout button
+    searchContainer.append('button')
+      .attr('class', 'ml-2 bg-blue-100 px-2 py-1 rounded text-sm')
+      .text('Improve Layout')
+      .on('click', () => {
+        // Adjust forces for better layout
+        simulation
+          .force('charge', d3.forceManyBody().strength(-1000))
+          .force('link', d3.forceLink(data.links as any)
+            .id((d: any) => d.id)
+            .distance(250))
+          .force('collision', d3.forceCollide().radius(120))
+          .alpha(0.5)
+          .restart()
+      })
     
     // Update positions on simulation tick
     simulation.on('tick', () => {
@@ -373,7 +465,7 @@ const renderGraph = (data: GraphData) => {
         .attr('x', (d: any) => (d.source.x + d.target.x) / 2)
         .attr('y', (d: any) => (d.source.y + d.target.y) / 2)
       
-      node.attr('transform', (d: any) => `translate(${d.x - 50}, ${d.y - 20})`)
+      node.attr('transform', (d: any) => `translate(${d.x - 60}, ${d.y - 25})`)
     })
     
     // Create drag behavior
@@ -391,8 +483,10 @@ const renderGraph = (data: GraphData) => {
       
       function dragended(event: any) {
         if (!event.active) simulation.alphaTarget(0)
-        event.subject.fx = null
-        event.subject.fy = null
+        // Keep the node fixed where it was dropped
+        // This helps maintain a manually arranged layout
+        // event.subject.fx = null
+        // event.subject.fy = null
       }
       
       return d3.drag()
@@ -402,20 +496,23 @@ const renderGraph = (data: GraphData) => {
     }
     
     // Initial zoom to fit
-    const initialScale = 0.8
+    const initialScale = 0.7
     const initialTransform = d3.zoomIdentity
       .translate(width / 2, height / 2)
       .scale(initialScale)
       .translate(-width / 2, -height / 2)
     
     svg.call((zoom as any).transform, initialTransform)
+    
+    // Run simulation for a bit to get a better initial layout
+    for (let i = 0; i < 100; ++i) simulation.tick()
   } catch (err) {
     error.value = `Error rendering graph: ${err instanceof Error ? err.message : String(err)}`
     console.error('Graph rendering error:', err)
   }
 }
 
-// Get color based on node kind
+// Get color based on node kind with improved color scheme
 const getNodeColor = (kind: string) => {
   switch (kind) {
     case 'ObjectType':
@@ -432,6 +529,26 @@ const getNodeColor = (kind: string) => {
       return '#f0f5ff'
     default:
       return '#f0f2f5'
+  }
+}
+
+// Get stroke color based on node kind
+const getNodeStrokeColor = (kind: string) => {
+  switch (kind) {
+    case 'ObjectType':
+      return '#1890ff'
+    case 'InterfaceType':
+      return '#fa8c16'
+    case 'EnumType':
+      return '#52c41a'
+    case 'InputObjectType':
+      return '#f5222d'
+    case 'ScalarType':
+      return '#722ed1'
+    case 'UnionType':
+      return '#2f54eb'
+    default:
+      return '#d9d9d9'
   }
 }
 
@@ -500,7 +617,7 @@ onMounted(() => {
       <span class="ml-2">Loading schema data...</span>
     </div>
     
-    <div v-else class="flex-1 border rounded-md overflow-hidden">
+    <div v-else class="flex-1 border rounded-md overflow-hidden relative">
       <div ref="containerRef" class="w-full h-full" style="min-height: 600px;"></div>
     </div>
   </div>
