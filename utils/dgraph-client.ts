@@ -29,24 +29,42 @@ export type ProxyResponse<T> = {
   }
 }
 
+
+// Connection test result type
+export type ConnectionTestResult = {
+  success: boolean;
+  healthCheck: {
+    success: boolean;
+    message: string;
+  };
+  schemaCheck: {
+    success: boolean;
+    message: string;
+  };
+  introspectionCheck: {
+    success: boolean;
+    message: string;
+  };
+  message: string;
+}
 export class DgraphClient {
   private connection: Connection
   private headers: Record<string, string> = {}
   private useProxy: boolean = true
-  
+
   constructor(connection: Connection) {
     this.connection = connection
     this.setupHeaders()
   }
-  
+
   private setupHeaders() {
     this.headers = {
       'Content-Type': 'application/json',
     }
-    
+
     // Add authentication headers based on credentials
     const { credentials } = this.connection
-    
+
     // If authMethod is specified, use that specific method
     if (credentials.authMethod) {
       switch (credentials.authMethod) {
@@ -56,37 +74,37 @@ export class DgraphClient {
             this.headers['Authorization'] = `Basic ${base64Credentials}`
           }
           break;
-          
+
         case 'apiKey':
           if (credentials.apiKey) {
             this.headers['X-Dgraph-ApiKey'] = credentials.apiKey
           }
           break;
-          
+
         case 'accessToken':
           if (credentials.token) {
             this.headers['Authorization'] = `Bearer ${credentials.token}`
           }
           break;
-          
+
         case 'authToken':
           if (credentials.authToken) {
             this.headers['X-Dgraph-AuthToken'] = credentials.authToken
           }
           break;
-          
+
         case 'xAuthToken':
           if (credentials.xAuthToken) {
             this.headers['X-Auth-Token'] = credentials.xAuthToken
           }
           break;
-          
+
         case 'jwt':
           if (credentials.jwt) {
             // Use custom header if specified, otherwise use Authorization
             const headerName = credentials.jwtHeader || 'Authorization'
-            this.headers[headerName] = credentials.jwt.startsWith('Bearer ') 
-              ? credentials.jwt 
+            this.headers[headerName] = credentials.jwt.startsWith('Bearer ')
+              ? credentials.jwt
               : `Bearer ${credentials.jwt}`
           }
           break;
@@ -96,26 +114,26 @@ export class DgraphClient {
       if (credentials.apiKey) {
         this.headers['X-Dgraph-ApiKey'] = credentials.apiKey
       }
-      
+
       if (credentials.authToken) {
         this.headers['X-Dgraph-AuthToken'] = credentials.authToken
       }
-      
+
       if (credentials.xAuthToken) {
         this.headers['X-Auth-Token'] = credentials.xAuthToken
       }
-      
+
       if (credentials.token) {
         this.headers['Authorization'] = `Bearer ${credentials.token}`
       }
-      
+
       if (credentials.username && credentials.password) {
         const base64Credentials = btoa(`${credentials.username}:${credentials.password}`)
         this.headers['Authorization'] = `Basic ${base64Credentials}`
       }
     }
   }
-  
+
   // Get the base URL for API requests (using proxy or direct)
   private getBaseUrl(endpoint: string): string {
     if (this.useProxy) {
@@ -126,33 +144,15 @@ export class DgraphClient {
       return `${this.connection.url}/${endpoint}`
     }
   }
-  
-  // Connection test result type
-  export type ConnectionTestResult = {
-    success: boolean;
-    healthCheck: {
-      success: boolean;
-      message: string;
-    };
-    schemaCheck: {
-      success: boolean;
-      message: string;
-    };
-    introspectionCheck: {
-      success: boolean;
-      message: string;
-    };
-    message: string;
-  }
 
   // Test connection with comprehensive checks
   async testConnection(connection?: Connection): Promise<ConnectionTestResult> {
     // Use provided connection or the instance's connection
     const conn = connection || this.connection;
-    
+
     // If a new connection was provided, create a temporary client
     const client = connection ? new DgraphClient(connection) : this;
-    
+
     const result: ConnectionTestResult = {
       success: false,
       healthCheck: {
@@ -169,7 +169,7 @@ export class DgraphClient {
       },
       message: 'Connection test failed'
     };
-    
+
     try {
       // 1. Health Check
       try {
@@ -178,11 +178,11 @@ export class DgraphClient {
           method: 'GET',
           headers: client.headers
         });
-        
+
         if (client.useProxy) {
           const proxyData = await healthResponse.json() as ProxyResponse<any>;
           result.healthCheck.success = proxyData.status >= 200 && proxyData.status < 300;
-          result.healthCheck.message = result.healthCheck.success 
+          result.healthCheck.message = result.healthCheck.success
             ? 'Health endpoint is accessible'
             : `Health endpoint returned status ${proxyData.status}: ${proxyData.statusText}`;
         } else {
@@ -195,7 +195,7 @@ export class DgraphClient {
         result.healthCheck.success = false;
         result.healthCheck.message = `Health endpoint check failed: ${healthError instanceof Error ? healthError.message : String(healthError)}`;
       }
-      
+
       // 2. Schema Check - Try to get the GraphQL schema
       try {
         const schemaQuery = `
@@ -205,7 +205,7 @@ export class DgraphClient {
             }
           }
         `;
-        
+
         const adminUrl = client.getBaseUrl('admin');
         const schemaResponse = await fetch(adminUrl, {
           method: 'POST',
@@ -215,11 +215,11 @@ export class DgraphClient {
           },
           body: JSON.stringify({ query: schemaQuery })
         });
-        
+
         if (client.useProxy) {
           const proxyData = await schemaResponse.json() as ProxyResponse<any>;
-          result.schemaCheck.success = proxyData.status >= 200 && proxyData.status < 300 && 
-                                      proxyData.data?.data?.getGQLSchema?.schema;
+          result.schemaCheck.success = proxyData.status >= 200 && proxyData.status < 300 &&
+            proxyData.data?.data?.getGQLSchema?.schema;
           result.schemaCheck.message = result.schemaCheck.success
             ? 'Successfully retrieved GraphQL schema'
             : proxyData.error?.message || `Failed to retrieve schema: ${proxyData.statusText}`;
@@ -234,7 +234,7 @@ export class DgraphClient {
         result.schemaCheck.success = false;
         result.schemaCheck.message = `Schema check failed: ${schemaError instanceof Error ? schemaError.message : String(schemaError)}`;
       }
-      
+
       // 3. Introspection Query - Test GraphQL endpoint with introspection
       try {
         const introspectionQuery = `
@@ -246,7 +246,7 @@ export class DgraphClient {
             }
           }
         `;
-        
+
         const graphqlUrl = client.getBaseUrl('graphql');
         const introspectionResponse = await fetch(graphqlUrl, {
           method: 'POST',
@@ -256,11 +256,11 @@ export class DgraphClient {
           },
           body: JSON.stringify({ query: introspectionQuery })
         });
-        
+
         if (client.useProxy) {
           const proxyData = await introspectionResponse.json() as ProxyResponse<any>;
-          result.introspectionCheck.success = proxyData.status >= 200 && proxyData.status < 300 && 
-                                             proxyData.data?.data?.__schema?.queryType;
+          result.introspectionCheck.success = proxyData.status >= 200 && proxyData.status < 300 &&
+            proxyData.data?.data?.__schema?.queryType;
           result.introspectionCheck.message = result.introspectionCheck.success
             ? 'GraphQL introspection query successful'
             : proxyData.error?.message || `Introspection query failed: ${proxyData.statusText}`;
@@ -275,10 +275,10 @@ export class DgraphClient {
         result.introspectionCheck.success = false;
         result.introspectionCheck.message = `Introspection check failed: ${introspectionError instanceof Error ? introspectionError.message : String(introspectionError)}`;
       }
-      
+
       // Determine overall success
       result.success = result.healthCheck.success || result.schemaCheck.success || result.introspectionCheck.success;
-      
+
       // Set overall message
       if (result.success) {
         const successfulChecks = [
@@ -286,12 +286,12 @@ export class DgraphClient {
           result.schemaCheck.success ? 'schema' : null,
           result.introspectionCheck.success ? 'introspection' : null
         ].filter(Boolean).join(', ');
-        
+
         result.message = `Connection successful! Passed checks: ${successfulChecks}`;
       } else {
         result.message = 'Connection failed. All endpoint checks failed.';
       }
-      
+
       return result;
     } catch (error) {
       console.error('Connection test failed:', error);
@@ -299,13 +299,13 @@ export class DgraphClient {
       return result;
     }
   }
-  
+
   // Simple connection test (backward compatibility)
   async testConnectionSimple(): Promise<boolean> {
     const result = await this.testConnection();
     return result.success;
   }
-  
+
   // Get GraphQL schema
   async getSchema(): Promise<DgraphResponse<GraphQLSchema>> {
     try {
@@ -317,7 +317,7 @@ export class DgraphClient {
           }
         }
       `;
-      
+
       const url = this.getBaseUrl('admin');
       const response = await fetch(url, {
         method: 'POST',
@@ -327,10 +327,10 @@ export class DgraphClient {
         },
         body: JSON.stringify({ query })
       });
-      
+
       if (this.useProxy) {
         const proxyResponse = await response.json() as ProxyResponse<any>;
-        
+
         if (proxyResponse.error) {
           return {
             error: {
@@ -339,7 +339,7 @@ export class DgraphClient {
             }
           };
         }
-        
+
         if (proxyResponse.status >= 400) {
           return {
             error: {
@@ -348,9 +348,9 @@ export class DgraphClient {
             }
           };
         }
-        
+
         const data = proxyResponse.data;
-        
+
         // Check for GraphQL errors
         if (data.errors) {
           return {
@@ -360,7 +360,7 @@ export class DgraphClient {
             }
           };
         }
-        
+
         // Extract schema from the response
         const schema = data.data?.getGQLSchema?.schema || '';
         return { data: { schema } };
@@ -374,9 +374,9 @@ export class DgraphClient {
             }
           };
         }
-        
+
         const data = await response.json();
-        
+
         // Check for GraphQL errors
         if (data.errors) {
           return {
@@ -386,7 +386,7 @@ export class DgraphClient {
             }
           };
         }
-        
+
         // Extract schema from the response
         const schema = data.data?.getGQLSchema?.schema || '';
         return { data: { schema } };
@@ -400,7 +400,7 @@ export class DgraphClient {
       };
     }
   }
-  
+
   // Update GraphQL schema
   async updateSchema(schema: string): Promise<DgraphResponse<{ success: boolean }>> {
     try {
@@ -414,7 +414,7 @@ export class DgraphClient {
           }
         }
       `;
-      
+
       const variables = {
         input: {
           set: {
@@ -422,7 +422,7 @@ export class DgraphClient {
           }
         }
       };
-      
+
       const url = this.getBaseUrl('admin');
       const response = await fetch(url, {
         method: 'POST',
@@ -435,10 +435,10 @@ export class DgraphClient {
           variables
         })
       });
-      
+
       if (this.useProxy) {
         const proxyResponse = await response.json() as ProxyResponse<any>;
-        
+
         if (proxyResponse.error) {
           return {
             error: {
@@ -447,7 +447,7 @@ export class DgraphClient {
             }
           };
         }
-        
+
         if (proxyResponse.status >= 400) {
           return {
             error: {
@@ -456,9 +456,9 @@ export class DgraphClient {
             }
           };
         }
-        
+
         const data = proxyResponse.data;
-        
+
         // Check for GraphQL errors
         if (data.errors) {
           return {
@@ -468,7 +468,7 @@ export class DgraphClient {
             }
           };
         }
-        
+
         return { data: { success: true } };
       } else {
         if (!response.ok) {
@@ -480,9 +480,9 @@ export class DgraphClient {
             }
           };
         }
-        
+
         const data = await response.json();
-        
+
         // Check for GraphQL errors
         if (data.errors) {
           return {
@@ -492,7 +492,7 @@ export class DgraphClient {
             }
           };
         }
-        
+
         return { data: { success: true } };
       }
     } catch (error) {
@@ -504,7 +504,7 @@ export class DgraphClient {
       };
     }
   }
-  
+
   // Execute GraphQL query
   async executeQuery<T>(query: string, variables?: Record<string, any>): Promise<DgraphResponse<T>> {
     try {
@@ -517,10 +517,10 @@ export class DgraphClient {
           variables
         })
       });
-      
+
       if (this.useProxy) {
         const proxyResponse = await response.json() as ProxyResponse<any>;
-        
+
         if (proxyResponse.error) {
           return {
             error: {
@@ -529,7 +529,7 @@ export class DgraphClient {
             }
           };
         }
-        
+
         if (proxyResponse.status >= 400) {
           return {
             error: {
@@ -538,9 +538,9 @@ export class DgraphClient {
             }
           };
         }
-        
+
         const data = proxyResponse.data;
-        
+
         if (data.errors) {
           return {
             error: {
@@ -549,11 +549,11 @@ export class DgraphClient {
             }
           };
         }
-        
+
         return { data: data.data as T };
       } else {
         const data = await response.json();
-        
+
         if (data.errors) {
           return {
             error: {
@@ -562,7 +562,7 @@ export class DgraphClient {
             }
           };
         }
-        
+
         return { data: data.data as T };
       }
     } catch (error) {
