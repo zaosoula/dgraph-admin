@@ -60,21 +60,37 @@ const dgraphDirectives = [
   'lambdaOnMutate'
 ]
 
-// Preprocess schema to handle Dgraph custom directives
+// Dgraph custom scalar types
+const dgraphScalarTypes = [
+  'Int64',
+  'DateTime',
+  'Point',
+  'PointList',
+  'Polygon',
+  'MultiPolygon'
+]
+
+// Preprocess schema to handle Dgraph custom directives and scalar types
 const preprocessSchema = (schema: string): string => {
   try {
     // First, add directive definitions for all Dgraph custom directives
     let processedSchema = schema
 
-    // Add directive definitions at the beginning of the schema
+    // Add scalar type definitions
+    let scalarDefinitions = ''
+    dgraphScalarTypes.forEach(scalar => {
+      scalarDefinitions += `scalar ${scalar}\n`
+    })
+
+    // Add directive definitions with flexible arguments
     let directiveDefinitions = ''
     dgraphDirectives.forEach(directive => {
       // Define each directive with a flexible signature that accepts any arguments
-      directiveDefinitions += `directive @${directive} on OBJECT | FIELD_DEFINITION | INTERFACE | SCALAR | ENUM\n`
+      directiveDefinitions += `directive @${directive}(by: [String], field: String, metric: String, exponent: Int) on OBJECT | FIELD_DEFINITION | INTERFACE | SCALAR | ENUM\n`
     })
 
-    // Add the directive definitions to the schema
-    processedSchema = directiveDefinitions + processedSchema
+    // Add the definitions to the schema
+    processedSchema = scalarDefinitions + directiveDefinitions + processedSchema
     
     return processedSchema
   } catch (err) {
