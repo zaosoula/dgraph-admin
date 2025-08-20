@@ -1,5 +1,5 @@
-import { ref, onMounted, watch, Ref } from 'vue'
-import { EditorState, Extension } from '@codemirror/state'
+import { ref, onMounted, watch, type Ref } from 'vue'
+import { EditorState, type Extension } from '@codemirror/state'
 import { EditorView, keymap, lineNumbers } from '@codemirror/view'
 import { defaultKeymap, history, historyKeymap } from '@codemirror/commands'
 import { indentOnInput, syntaxHighlighting, defaultHighlightStyle } from '@codemirror/language'
