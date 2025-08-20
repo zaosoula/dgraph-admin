@@ -1,12 +1,9 @@
 <script setup lang="ts">
 import { ref, onMounted, watch, nextTick } from 'vue'
-import { Voyager } from 'graphql-voyager'
 import { buildClientSchema, getIntrospectionQuery, IntrospectionQuery } from 'graphql'
 import { useDgraphClient } from '@/composables/useDgraphClient'
 import { useConnectionsStore } from '@/stores/connections'
-
-// Import the CSS for GraphQL Voyager
-import 'graphql-voyager/dist/voyager.css'
+import * as d3 from 'd3'
 
 const props = defineProps<{
   schema?: string
@@ -19,6 +16,26 @@ const isLoading = ref(false)
 const error = ref<string | null>(null)
 const introspectionData = ref<IntrospectionQuery | null>(null)
 const containerRef = ref<HTMLDivElement | null>(null)
+
+// Graph data structure
+type GraphNode = {
+  id: string
+  name: string
+  kind: string
+  fields?: string[]
+  description?: string
+}
+
+type GraphLink = {
+  source: string
+  target: string
+  relationship: string
+}
+
+type GraphData = {
+  nodes: GraphNode[]
+  links: GraphLink[]
+}
 
 // Load introspection data from the GraphQL endpoint
 const loadIntrospectionData = async () => {
@@ -41,6 +58,7 @@ const loadIntrospectionData = async () => {
     
     if (result.data) {
       introspectionData.value = result.data as IntrospectionQuery
+      processIntrospectionData()
     }
   } catch (err) {
     error.value = err instanceof Error ? err.message : String(err)
@@ -49,27 +67,232 @@ const loadIntrospectionData = async () => {
   }
 }
 
-// Initialize the Voyager component
-const initVoyager = () => {
-  if (!containerRef.value || !introspectionData.value) return
+// Process introspection data to create graph structure
+const processIntrospectionData = () => {
+  if (!introspectionData.value) return
   
-  // Clear the container first
-  containerRef.value.innerHTML = ''
+  const schema = buildClientSchema(introspectionData.value)
+  const typeMap = schema.getTypeMap()
   
-  // Create a new Voyager instance
-  new Voyager({
-    elem: containerRef.value,
-    introspection: introspectionData.value,
-    displayOptions: {
-      skipRelay: true,
-      skipDeprecated: false,
-      sortByAlphabet: true,
-      showLeafFields: true,
-      hideRoot: false
-    },
-    hideDocs: false,
-    hideSettings: false
+  const graphData: GraphData = {
+    nodes: [],
+    links: []
+  }
+  
+  // Filter out built-in types and create nodes
+  Object.values(typeMap).forEach(type => {
+    const typeName = type.name
+    
+    // Skip built-in types (those starting with __)
+    if (typeName.startsWith('__')) return
+    
+    // Create node for each type
+    const node: GraphNode = {
+      id: typeName,
+      name: typeName,
+      kind: type.astNode?.kind || 'OBJECT',
+      fields: []
+    }
+    
+    // Add fields if available
+    if ('getFields' in type && typeof type.getFields === 'function') {
+      const fields = type.getFields()
+      node.fields = Object.keys(fields)
+      
+      // Create links for field relationships
+      Object.values(fields).forEach(field => {
+        const fieldType = field.type.toString().replace(/[[\]!]/g, '')
+        
+        // Skip scalar types for links
+        if (!fieldType.startsWith('__') && !['String', 'Int', 'Float', 'Boolean', 'ID'].includes(fieldType)) {
+          graphData.links.push({
+            source: typeName,
+            target: fieldType,
+            relationship: field.name
+          })
+        }
+      })
+    }
+    
+    graphData.nodes.push(node)
   })
+  
+  nextTick(() => {
+    renderGraph(graphData)
+  })
+}
+
+// Render the graph using D3.js
+const renderGraph = (data: GraphData) => {
+  if (!containerRef.value) return
+  
+  // Clear previous graph
+  d3.select(containerRef.value).selectAll('*').remove()
+  
+  const width = containerRef.value.clientWidth
+  const height = 600
+  
+  // Create SVG container
+  const svg = d3.select(containerRef.value)
+    .append('svg')
+    .attr('width', width)
+    .attr('height', height)
+    .attr('viewBox', [0, 0, width, height])
+    .attr('style', 'max-width: 100%; height: auto;')
+  
+  // Create zoom behavior
+  const zoom = d3.zoom()
+    .scaleExtent([0.1, 4])
+    .on('zoom', (event) => {
+      g.attr('transform', event.transform)
+    })
+  
+  svg.call(zoom as any)
+  
+  // Create container for the graph
+  const g = svg.append('g')
+  
+  // Create force simulation
+  const simulation = d3.forceSimulation(data.nodes as any)
+    .force('link', d3.forceLink(data.links as any)
+      .id((d: any) => d.id)
+      .distance(150))
+    .force('charge', d3.forceManyBody().strength(-500))
+    .force('center', d3.forceCenter(width / 2, height / 2))
+    .force('collision', d3.forceCollide().radius(80))
+  
+  // Create links
+  const link = g.append('g')
+    .selectAll('line')
+    .data(data.links)
+    .join('line')
+    .attr('stroke', '#999')
+    .attr('stroke-opacity', 0.6)
+    .attr('stroke-width', 1)
+  
+  // Create link labels
+  const linkLabels = g.append('g')
+    .selectAll('text')
+    .data(data.links)
+    .join('text')
+    .attr('font-size', 10)
+    .attr('fill', '#666')
+    .text(d => d.relationship)
+  
+  // Create nodes
+  const node = g.append('g')
+    .selectAll('g')
+    .data(data.nodes)
+    .join('g')
+    .call(drag(simulation) as any)
+    .on('click', (event, d) => {
+      // Show details when clicking on a node
+      showNodeDetails(d)
+    })
+  
+  // Add node rectangles
+  node.append('rect')
+    .attr('width', d => Math.max(d.name.length * 8 + 20, 100))
+    .attr('height', d => (d.fields?.length || 0) > 0 ? Math.min((d.fields?.length || 0) * 20 + 40, 200) : 40)
+    .attr('rx', 5)
+    .attr('ry', 5)
+    .attr('fill', d => getNodeColor(d.kind))
+    .attr('stroke', '#333')
+    .attr('stroke-width', 1)
+  
+  // Add node titles
+  node.append('text')
+    .attr('x', 10)
+    .attr('y', 20)
+    .attr('font-weight', 'bold')
+    .text(d => d.name)
+  
+  // Add field names (limited to first 5 for readability)
+  node.each(function(d) {
+    const nodeGroup = d3.select(this)
+    const fields = d.fields || []
+    const displayFields = fields.slice(0, 5)
+    
+    displayFields.forEach((field, i) => {
+      nodeGroup.append('text')
+        .attr('x', 15)
+        .attr('y', 40 + i * 20)
+        .attr('font-size', 12)
+        .text(field)
+    })
+    
+    if (fields.length > 5) {
+      nodeGroup.append('text')
+        .attr('x', 15)
+        .attr('y', 40 + 5 * 20)
+        .attr('font-size', 12)
+        .text(`... ${fields.length - 5} more`)
+    }
+  })
+  
+  // Update positions on simulation tick
+  simulation.on('tick', () => {
+    link
+      .attr('x1', (d: any) => d.source.x)
+      .attr('y1', (d: any) => d.source.y)
+      .attr('x2', (d: any) => d.target.x)
+      .attr('y2', (d: any) => d.target.y)
+    
+    linkLabels
+      .attr('x', (d: any) => (d.source.x + d.target.x) / 2)
+      .attr('y', (d: any) => (d.source.y + d.target.y) / 2)
+    
+    node.attr('transform', (d: any) => `translate(${d.x - 50}, ${d.y - 20})`)
+  })
+  
+  // Create drag behavior
+  function drag(simulation: any) {
+    function dragstarted(event: any) {
+      if (!event.active) simulation.alphaTarget(0.3).restart()
+      event.subject.fx = event.subject.x
+      event.subject.fy = event.subject.y
+    }
+    
+    function dragged(event: any) {
+      event.subject.fx = event.x
+      event.subject.fy = event.y
+    }
+    
+    function dragended(event: any) {
+      if (!event.active) simulation.alphaTarget(0)
+      event.subject.fx = null
+      event.subject.fy = null
+    }
+    
+    return d3.drag()
+      .on('start', dragstarted)
+      .on('drag', dragged)
+      .on('end', dragended)
+  }
+}
+
+// Get color based on node kind
+const getNodeColor = (kind: string) => {
+  switch (kind) {
+    case 'OBJECT':
+      return '#e6f7ff'
+    case 'INTERFACE':
+      return '#fff7e6'
+    case 'ENUM':
+      return '#f6ffed'
+    case 'INPUT_OBJECT':
+      return '#fff1f0'
+    case 'SCALAR':
+      return '#f9f0ff'
+    default:
+      return '#f0f2f5'
+  }
+}
+
+// Show node details in a panel
+const showNodeDetails = (node: GraphNode) => {
+  // This could be implemented to show more details about the selected node
+  console.log('Node details:', node)
 }
 
 // Watch for active connection changes
@@ -79,18 +302,18 @@ watch(() => connectionsStore.activeConnectionId, (newId) => {
   }
 })
 
-// Watch for introspection data changes
-watch(introspectionData, () => {
-  nextTick(() => {
-    initVoyager()
-  })
-})
-
 // Initialize
 onMounted(() => {
   if (connectionsStore.activeConnectionId) {
     loadIntrospectionData()
   }
+  
+  // Handle window resize
+  window.addEventListener('resize', () => {
+    if (introspectionData.value) {
+      processIntrospectionData()
+    }
+  })
 })
 </script>
 
@@ -126,22 +349,17 @@ onMounted(() => {
 </template>
 
 <style>
-/* Override some of the Voyager styles to better match our app */
-:deep(.voyager-wrapper) {
-  height: 100%;
-  width: 100%;
-}
-
-:deep(.doc-explorer-title) {
-  font-weight: 600;
-}
-
-:deep(.type-link) {
-  color: var(--primary);
-}
-
-:deep(.doc-category-item) {
-  padding: 4px 8px;
+.node-tooltip {
+  position: absolute;
+  background-color: white;
+  border: 1px solid #ccc;
+  border-radius: 4px;
+  padding: 8px;
+  font-size: 12px;
+  pointer-events: none;
+  z-index: 10;
+  max-width: 300px;
+  box-shadow: 0 2px 4px rgba(0, 0, 0, 0.1);
 }
 </style>
 
