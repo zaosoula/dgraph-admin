@@ -10,6 +10,7 @@ export type DgraphError = {
   message: string
   code?: string
   details?: string
+  originalErrors?: any[]
 }
 
 // Response type
@@ -37,6 +38,32 @@ export class DgraphClient {
   constructor(connection: Connection) {
     this.connection = connection
     this.setupHeaders()
+  }
+  
+  // Helper method to process GraphQL errors
+  private processGraphQLErrors(errors: any[], operation: string): DgraphError {
+    // Check for authentication errors
+    const authErrors = errors.filter(err => 
+      err.message?.includes('X-Dgraph-AuthToken') || 
+      (err.extensions?.code === 'ErrorUnauthorized')
+    );
+    
+    if (authErrors.length > 0) {
+      return {
+        message: `Authentication Error: ${authErrors[0].message}`,
+        code: authErrors[0].extensions?.code || 'AUTH_ERROR',
+        details: JSON.stringify(errors),
+        originalErrors: errors
+      };
+    }
+    
+    // Default error handling
+    return {
+      message: `Failed to ${operation}`,
+      code: errors[0]?.extensions?.code || 'GRAPHQL_ERROR',
+      details: JSON.stringify(errors),
+      originalErrors: errors
+    };
   }
   
   private setupHeaders() {
@@ -153,7 +180,8 @@ export class DgraphClient {
           return {
             error: {
               message: 'Failed to fetch schema',
-              details: proxyResponse.error.message
+              details: proxyResponse.error.message,
+              code: proxyResponse.error.code
             }
           };
         }
@@ -162,7 +190,8 @@ export class DgraphClient {
           return {
             error: {
               message: 'Failed to fetch schema',
-              details: `Status: ${proxyResponse.status} ${proxyResponse.statusText}`
+              details: `Status: ${proxyResponse.status} ${proxyResponse.statusText}`,
+              code: 'HTTP_ERROR'
             }
           };
         }
@@ -172,10 +201,7 @@ export class DgraphClient {
         // Check for GraphQL errors
         if (data.errors) {
           return {
-            error: {
-              message: 'Failed to fetch schema',
-              details: JSON.stringify(data.errors)
-            }
+            error: this.processGraphQLErrors(data.errors, 'fetch schema')
           };
         }
         
@@ -188,7 +214,8 @@ export class DgraphClient {
           return {
             error: {
               message: 'Failed to fetch schema',
-              details: errorText
+              details: errorText,
+              code: 'HTTP_ERROR'
             }
           };
         }
@@ -198,10 +225,7 @@ export class DgraphClient {
         // Check for GraphQL errors
         if (data.errors) {
           return {
-            error: {
-              message: 'Failed to fetch schema',
-              details: JSON.stringify(data.errors)
-            }
+            error: this.processGraphQLErrors(data.errors, 'fetch schema')
           };
         }
         
@@ -213,7 +237,8 @@ export class DgraphClient {
       return {
         error: {
           message: 'Failed to fetch schema',
-          details: error instanceof Error ? error.message : String(error)
+          details: error instanceof Error ? error.message : String(error),
+          code: 'UNKNOWN_ERROR'
         }
       };
     }
@@ -261,7 +286,8 @@ export class DgraphClient {
           return {
             error: {
               message: 'Failed to update schema',
-              details: proxyResponse.error.message
+              details: proxyResponse.error.message,
+              code: proxyResponse.error.code
             }
           };
         }
@@ -270,7 +296,8 @@ export class DgraphClient {
           return {
             error: {
               message: 'Failed to update schema',
-              details: `Status: ${proxyResponse.status} ${proxyResponse.statusText}`
+              details: `Status: ${proxyResponse.status} ${proxyResponse.statusText}`,
+              code: 'HTTP_ERROR'
             }
           };
         }
@@ -280,10 +307,7 @@ export class DgraphClient {
         // Check for GraphQL errors
         if (data.errors) {
           return {
-            error: {
-              message: 'Failed to update schema',
-              details: JSON.stringify(data.errors)
-            }
+            error: this.processGraphQLErrors(data.errors, 'update schema')
           };
         }
         
@@ -294,7 +318,8 @@ export class DgraphClient {
           return {
             error: {
               message: 'Failed to update schema',
-              details: errorText
+              details: errorText,
+              code: 'HTTP_ERROR'
             }
           };
         }
@@ -304,10 +329,7 @@ export class DgraphClient {
         // Check for GraphQL errors
         if (data.errors) {
           return {
-            error: {
-              message: 'Failed to update schema',
-              details: JSON.stringify(data.errors)
-            }
+            error: this.processGraphQLErrors(data.errors, 'update schema')
           };
         }
         
@@ -317,7 +339,8 @@ export class DgraphClient {
       return {
         error: {
           message: 'Failed to update schema',
-          details: error instanceof Error ? error.message : String(error)
+          details: error instanceof Error ? error.message : String(error),
+          code: 'UNKNOWN_ERROR'
         }
       };
     }
@@ -343,7 +366,8 @@ export class DgraphClient {
           return {
             error: {
               message: 'GraphQL query execution failed',
-              details: proxyResponse.error.message
+              details: proxyResponse.error.message,
+              code: proxyResponse.error.code
             }
           };
         }
@@ -352,7 +376,8 @@ export class DgraphClient {
           return {
             error: {
               message: 'GraphQL query execution failed',
-              details: `Status: ${proxyResponse.status} ${proxyResponse.statusText}`
+              details: `Status: ${proxyResponse.status} ${proxyResponse.statusText}`,
+              code: 'HTTP_ERROR'
             }
           };
         }
@@ -361,10 +386,7 @@ export class DgraphClient {
         
         if (data.errors) {
           return {
-            error: {
-              message: 'GraphQL query execution failed',
-              details: JSON.stringify(data.errors)
-            }
+            error: this.processGraphQLErrors(data.errors, 'execute query')
           };
         }
         
@@ -374,10 +396,7 @@ export class DgraphClient {
         
         if (data.errors) {
           return {
-            error: {
-              message: 'GraphQL query execution failed',
-              details: JSON.stringify(data.errors)
-            }
+            error: this.processGraphQLErrors(data.errors, 'execute query')
           };
         }
         
@@ -387,9 +406,11 @@ export class DgraphClient {
       return {
         error: {
           message: 'GraphQL query execution failed',
-          details: error instanceof Error ? error.message : String(error)
+          details: error instanceof Error ? error.message : String(error),
+          code: 'UNKNOWN_ERROR'
         }
       };
     }
   }
 }
+

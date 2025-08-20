@@ -35,9 +35,31 @@ const loadSchema = async () => {
     const result = await dgraphClient.getSchema()
     
     if (result.error) {
-      error.value = result.error.message
+      // For authentication errors, show a more user-friendly message
+      if (result.error.code === 'AUTH_ERROR' || result.error.code === 'ErrorUnauthorized') {
+        error.value = result.error.message
+        // Add details if they exist
+        if (result.error.details) {
+          try {
+            // Try to parse the details as JSON
+            const parsedDetails = JSON.parse(result.error.details)
+            if (Array.isArray(parsedDetails) && parsedDetails.length > 0) {
+              // Add the first error message to the error display
+              error.value += `: ${parsedDetails[0].message}`
+            }
+          } catch (e) {
+            // If parsing fails, just log the error
+            console.error('Failed to parse error details:', e)
+          }
+        }
+      } else {
+        // For other errors, just show the message
+        error.value = result.error.message
+      }
+      
+      // Log details for debugging
       if (result.error.details) {
-        console.error('Schema load error details:', result.error.details)
+        console.error(`Schema load error (${result.error.code || 'unknown'}) details:`, result.error.details)
       }
       return
     }
@@ -67,9 +89,31 @@ const saveSchema = async () => {
     const result = await dgraphClient.updateSchema(schema.value)
     
     if (result.error) {
-      error.value = result.error.message
+      // For authentication errors, show a more user-friendly message
+      if (result.error.code === 'AUTH_ERROR' || result.error.code === 'ErrorUnauthorized') {
+        error.value = result.error.message
+        // Add details if they exist
+        if (result.error.details) {
+          try {
+            // Try to parse the details as JSON
+            const parsedDetails = JSON.parse(result.error.details)
+            if (Array.isArray(parsedDetails) && parsedDetails.length > 0) {
+              // Add the first error message to the error display
+              error.value += `: ${parsedDetails[0].message}`
+            }
+          } catch (e) {
+            // If parsing fails, just log the error
+            console.error('Failed to parse error details:', e)
+          }
+        }
+      } else {
+        // For other errors, just show the message
+        error.value = result.error.message
+      }
+      
+      // Log details for debugging
       if (result.error.details) {
-        console.error('Schema save error details:', result.error.details)
+        console.error(`Schema save error (${result.error.code || 'unknown'}) details:`, result.error.details)
       }
       return
     }
@@ -151,4 +195,3 @@ onMounted(() => {
     </div>
   </div>
 </template>
-
