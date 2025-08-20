@@ -10,6 +10,14 @@
     "postinstall": "nuxt prepare"
   },
   "dependencies": {
+    "@codemirror/commands": "^6.8.1",
+    "@codemirror/lang-sql": "^6.9.1",
+    "@codemirror/language": "^6.11.3",
+    "@codemirror/language-data": "^6.5.1",
+    "@codemirror/state": "^6.5.2",
+    "@codemirror/view": "^6.38.1",
+    "@lezer/common": "^1.2.3",
+    "@lezer/highlight": "^1.2.1",
     "@vueuse/core": "^10.7.0",
     "class-variance-authority": "^0.7.0",
     "clsx": "^2.0.0",
@@ -35,5 +43,6 @@
     "vue": "^3.4.0",
     "vue-router": "^4.2.0",
     "vue-tsc": "^1.8.0"
-  }
+  },
+  "packageManager": "yarn@4.9.2+sha512.1fc009bc09d13cfd0e19efa44cbfc2b9cf6ca61482725eb35bbc5e257e093ebf4130db6dfe15d604ff4b79efd8e1e8e99b25fa7d0a6197c9f9826358d4d65c3c"
 }
