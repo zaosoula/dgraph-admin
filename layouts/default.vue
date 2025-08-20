@@ -32,6 +32,7 @@ onMounted(() => {
             <NuxtLink to="/" class="text-sm font-medium hover:text-primary">Dashboard</NuxtLink>
             <NuxtLink to="/connections" class="text-sm font-medium hover:text-primary">Connections</NuxtLink>
             <NuxtLink to="/schema" class="text-sm font-medium hover:text-primary">Schema</NuxtLink>
+            <NuxtLink to="/query" class="text-sm font-medium hover:text-primary">Query</NuxtLink>
             <NuxtLink to="/settings" class="text-sm font-medium hover:text-primary">Settings</NuxtLink>
           </nav>
         </div>
@@ -61,4 +62,3 @@ onMounted(() => {
     </footer>
   </div>
 </template>
-
