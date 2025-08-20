@@ -45,7 +45,7 @@ onMounted(() => {
             <span v-else>🌙</span>
           </button>
           
-          <ConnectionConnectionSwitcher class="w-64" />
+          <ConnectionSwitcher class="w-64" />
         </div>
       </div>
     </header>

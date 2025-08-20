@@ -91,7 +91,7 @@ const handleFormCancelled = () => {
           <UiCardTitle>Add New Connection</UiCardTitle>
         </UiCardHeader>
         <UiCardContent>
-          <ConnectionConnectionForm 
+          <ConnectionForm 
             @saved="handleConnectionSaved" 
             @cancelled="handleFormCancelled" 
           />
@@ -105,7 +105,7 @@ const handleFormCancelled = () => {
           <UiCardTitle>Edit Connection</UiCardTitle>
         </UiCardHeader>
         <UiCardContent>
-          <ConnectionConnectionForm 
+          <ConnectionForm 
             :connection="editingConnection" 
             @saved="handleConnectionSaved" 
             @cancelled="handleFormCancelled" 
@@ -115,7 +115,7 @@ const handleFormCancelled = () => {
     </div>
     
     <div v-else>
-      <ConnectionConnectionList 
+      <ConnectionList 
         @edit="editConnection" 
         @delete="confirmDelete" 
       />

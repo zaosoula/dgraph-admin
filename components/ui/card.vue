@@ -1,7 +1,7 @@
 <script setup lang="ts">
 import { cn } from '@/utils/cn'
 
-defineProps<{
+const props = defineProps<{
   class?: string
 }>()
 </script>
@@ -10,7 +10,7 @@ defineProps<{
   <div
     :class="cn(
       'rounded-xl border bg-card text-card-foreground shadow',
-      class,
+      props.class
     )"
   >
     <slot />
