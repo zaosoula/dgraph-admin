@@ -16,7 +16,7 @@ const schemaHistoryStore = useSchemaHistoryStore()
 const dgraphClient = useDgraphClient()
 
 // UI state
-const activeTab = ref<'editor' | 'diff'>('editor')
+const activeTab = ref<'editor' | 'diff' | 'diagram'>('editor')
 const currentSchema = ref('')
 const selectedVersionId = ref<string | null>(null)
 const saveDescription = ref('')
@@ -118,6 +118,14 @@ const applySelectedVersion = async () => {
         
         <UiButton 
           variant="outline" 
+          :class="activeTab === 'diagram' ? 'bg-muted' : ''"
+          @click="activeTab = 'diagram'"
+        >
+          Diagram
+        </UiButton>
+        
+        <UiButton 
+          variant="outline" 
           :class="activeTab === 'diff' ? 'bg-muted' : ''"
           @click="activeTab = 'diff'"
           :disabled="!selectedVersionId"
@@ -149,6 +157,12 @@ const applySelectedVersion = async () => {
             v-model:schema="currentSchema"
             @update:schema="handleSchemaUpdate"
             @save="handleSchemaSave"
+          />
+        </div>
+        
+        <div v-else-if="activeTab === 'diagram'" class="h-[600px]">
+          <SchemaDiagram 
+            :schema="currentSchema"
           />
         </div>
         
