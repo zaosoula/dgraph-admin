@@ -4,6 +4,7 @@ import { useConnectionsStore } from '@/stores/connections'
 import { useCredentialStorage } from '@/composables/useCredentialStorage'
 import { useDgraphClient } from '@/composables/useDgraphClient'
 import type { Connection, ConnectionType, ConnectionCredentials, AuthMethod } from '@/types/connection'
+import type { ConnectionTestResult } from '@/utils/dgraph-client'
 
 const props = defineProps<{
   connection?: Connection
@@ -19,7 +20,7 @@ const credentialStorage = useCredentialStorage()
 const dgraphClient = useDgraphClient()
 
 const isLoading = ref(false)
-const testResult = ref<{ success: boolean; message: string } | null>(null)
+const testResult = ref<ConnectionTestResult | null>(null)
 
 // Get stored credentials if editing an existing connection
 const storedCredentials = props.connection?.id 
@@ -116,7 +117,7 @@ const validate = () => {
   return isValid
 }
 
-// Test connection
+// Test connection with comprehensive checks
 const testConnection = async () => {
   if (!validate()) return
   
@@ -135,15 +136,23 @@ const testConnection = async () => {
       updatedAt: new Date()
     }
     
-    const isConnected = await dgraphClient.testConnection(tempConnection)
-    
-    testResult.value = {
-      success: isConnected,
-      message: isConnected ? 'Connection successful!' : 'Connection failed. Please check your settings.'
-    }
+    // Use the comprehensive test method
+    testResult.value = await dgraphClient.testConnection(tempConnection)
   } catch (error) {
     testResult.value = {
       success: false,
+      healthCheck: {
+        success: false,
+        message: 'Test failed'
+      },
+      schemaCheck: {
+        success: false,
+        message: 'Test failed'
+      },
+      introspectionCheck: {
+        success: false,
+        message: 'Test failed'
+      },
       message: `Error: ${error instanceof Error ? error.message : String(error)}`
     }
   } finally {
@@ -388,8 +397,62 @@ watch(() => formState.credentials.authMethod, (newMethod, oldMethod) => {
       </p>
     </div>
     
-    <div v-if="testResult" class="p-4 rounded-md" :class="testResult.success ? 'bg-green-50 text-green-700' : 'bg-red-50 text-red-700'">
-      {{ testResult.message }}
+    <div v-if="testResult" class="space-y-4">
+      <!-- Overall result -->
+      <div class="p-4 rounded-md" :class="testResult.success ? 'bg-green-50 text-green-700' : 'bg-red-50 text-red-700'">
+        <div class="font-medium">{{ testResult.message }}</div>
+      </div>
+      
+      <!-- Detailed test results -->
+      <div class="space-y-2 border rounded-md p-4">
+        <h3 class="text-sm font-medium mb-2">Detailed Test Results</h3>
+        
+        <!-- Health Check -->
+        <div class="flex items-start space-x-2">
+          <div class="mt-0.5">
+            <span v-if="testResult.healthCheck.success" class="text-green-500">✓</span>
+            <span v-else class="text-red-500">✗</span>
+          </div>
+          <div>
+            <div class="font-medium">Health Check</div>
+            <div class="text-sm" :class="testResult.healthCheck.success ? 'text-green-600' : 'text-red-600'">
+              {{ testResult.healthCheck.message }}
+            </div>
+          </div>
+        </div>
+        
+        <!-- Schema Check -->
+        <div class="flex items-start space-x-2">
+          <div class="mt-0.5">
+            <span v-if="testResult.schemaCheck.success" class="text-green-500">✓</span>
+            <span v-else class="text-red-500">✗</span>
+          </div>
+          <div>
+            <div class="font-medium">Schema Check</div>
+            <div class="text-sm" :class="testResult.schemaCheck.success ? 'text-green-600' : 'text-red-600'">
+              {{ testResult.schemaCheck.message }}
+            </div>
+          </div>
+        </div>
+        
+        <!-- Introspection Check -->
+        <div class="flex items-start space-x-2">
+          <div class="mt-0.5">
+            <span v-if="testResult.introspectionCheck.success" class="text-green-500">✓</span>
+            <span v-else class="text-red-500">✗</span>
+          </div>
+          <div>
+            <div class="font-medium">Introspection Check</div>
+            <div class="text-sm" :class="testResult.introspectionCheck.success ? 'text-green-600' : 'text-red-600'">
+              {{ testResult.introspectionCheck.message }}
+            </div>
+          </div>
+        </div>
+        
+        <p class="text-xs text-muted-foreground mt-2">
+          Note: A connection is considered successful if at least one of the checks passes. Different Dgraph instances may have different endpoints enabled.
+        </p>
+      </div>
     </div>
     
     <div class="flex justify-end space-x-2">

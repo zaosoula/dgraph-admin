@@ -127,52 +127,183 @@ export class DgraphClient {
     }
   }
   
-  // Test connection
-  async testConnection(): Promise<boolean> {
+  // Connection test result type
+  export type ConnectionTestResult = {
+    success: boolean;
+    healthCheck: {
+      success: boolean;
+      message: string;
+    };
+    schemaCheck: {
+      success: boolean;
+      message: string;
+    };
+    introspectionCheck: {
+      success: boolean;
+      message: string;
+    };
+    message: string;
+  }
+
+  // Test connection with comprehensive checks
+  async testConnection(connection?: Connection): Promise<ConnectionTestResult> {
+    // Use provided connection or the instance's connection
+    const conn = connection || this.connection;
+    
+    // If a new connection was provided, create a temporary client
+    const client = connection ? new DgraphClient(connection) : this;
+    
+    const result: ConnectionTestResult = {
+      success: false,
+      healthCheck: {
+        success: false,
+        message: 'Not tested'
+      },
+      schemaCheck: {
+        success: false,
+        message: 'Not tested'
+      },
+      introspectionCheck: {
+        success: false,
+        message: 'Not tested'
+      },
+      message: 'Connection test failed'
+    };
+    
     try {
-      // First try the health endpoint
+      // 1. Health Check
       try {
-        const healthUrl = this.getBaseUrl('health');
+        const healthUrl = client.getBaseUrl('health');
         const healthResponse = await fetch(healthUrl, {
           method: 'GET',
-          headers: this.headers
+          headers: client.headers
         });
         
-        if (this.useProxy) {
+        if (client.useProxy) {
           const proxyData = await healthResponse.json() as ProxyResponse<any>;
-          if (proxyData.status >= 200 && proxyData.status < 300) {
-            return true;
-          }
-        } else if (healthResponse.ok) {
-          return true;
+          result.healthCheck.success = proxyData.status >= 200 && proxyData.status < 300;
+          result.healthCheck.message = result.healthCheck.success 
+            ? 'Health endpoint is accessible'
+            : `Health endpoint returned status ${proxyData.status}: ${proxyData.statusText}`;
+        } else {
+          result.healthCheck.success = healthResponse.ok;
+          result.healthCheck.message = result.healthCheck.success
+            ? 'Health endpoint is accessible'
+            : `Health endpoint returned status ${healthResponse.status}: ${healthResponse.statusText}`;
         }
       } catch (healthError) {
-        console.debug('Health endpoint check failed, trying admin endpoint:', healthError);
+        result.healthCheck.success = false;
+        result.healthCheck.message = `Health endpoint check failed: ${healthError instanceof Error ? healthError.message : String(healthError)}`;
       }
       
-      // If health endpoint fails, try the admin endpoint with a simple query
-      const query = `{ __typename }`;
-      const adminUrl = this.getBaseUrl('admin');
-      
-      const adminResponse = await fetch(adminUrl, {
-        method: 'POST',
-        headers: {
-          ...this.headers,
-          'Content-Type': 'application/json'
-        },
-        body: JSON.stringify({ query })
-      });
-      
-      if (this.useProxy) {
-        const proxyData = await adminResponse.json() as ProxyResponse<any>;
-        return proxyData.status >= 200 && proxyData.status < 300;
+      // 2. Schema Check - Try to get the GraphQL schema
+      try {
+        const schemaQuery = `
+          {
+            getGQLSchema {
+              schema
+            }
+          }
+        `;
+        
+        const adminUrl = client.getBaseUrl('admin');
+        const schemaResponse = await fetch(adminUrl, {
+          method: 'POST',
+          headers: {
+            ...client.headers,
+            'Content-Type': 'application/json'
+          },
+          body: JSON.stringify({ query: schemaQuery })
+        });
+        
+        if (client.useProxy) {
+          const proxyData = await schemaResponse.json() as ProxyResponse<any>;
+          result.schemaCheck.success = proxyData.status >= 200 && proxyData.status < 300 && 
+                                      proxyData.data?.data?.getGQLSchema?.schema;
+          result.schemaCheck.message = result.schemaCheck.success
+            ? 'Successfully retrieved GraphQL schema'
+            : proxyData.error?.message || `Failed to retrieve schema: ${proxyData.statusText}`;
+        } else {
+          const data = await schemaResponse.json();
+          result.schemaCheck.success = schemaResponse.ok && data?.data?.getGQLSchema?.schema;
+          result.schemaCheck.message = result.schemaCheck.success
+            ? 'Successfully retrieved GraphQL schema'
+            : data?.errors?.[0]?.message || 'Failed to retrieve schema';
+        }
+      } catch (schemaError) {
+        result.schemaCheck.success = false;
+        result.schemaCheck.message = `Schema check failed: ${schemaError instanceof Error ? schemaError.message : String(schemaError)}`;
       }
       
-      return adminResponse.ok;
+      // 3. Introspection Query - Test GraphQL endpoint with introspection
+      try {
+        const introspectionQuery = `
+          query {
+            __schema {
+              queryType {
+                name
+              }
+            }
+          }
+        `;
+        
+        const graphqlUrl = client.getBaseUrl('graphql');
+        const introspectionResponse = await fetch(graphqlUrl, {
+          method: 'POST',
+          headers: {
+            ...client.headers,
+            'Content-Type': 'application/json'
+          },
+          body: JSON.stringify({ query: introspectionQuery })
+        });
+        
+        if (client.useProxy) {
+          const proxyData = await introspectionResponse.json() as ProxyResponse<any>;
+          result.introspectionCheck.success = proxyData.status >= 200 && proxyData.status < 300 && 
+                                             proxyData.data?.data?.__schema?.queryType;
+          result.introspectionCheck.message = result.introspectionCheck.success
+            ? 'GraphQL introspection query successful'
+            : proxyData.error?.message || `Introspection query failed: ${proxyData.statusText}`;
+        } else {
+          const data = await introspectionResponse.json();
+          result.introspectionCheck.success = introspectionResponse.ok && data?.data?.__schema?.queryType;
+          result.introspectionCheck.message = result.introspectionCheck.success
+            ? 'GraphQL introspection query successful'
+            : data?.errors?.[0]?.message || 'Introspection query failed';
+        }
+      } catch (introspectionError) {
+        result.introspectionCheck.success = false;
+        result.introspectionCheck.message = `Introspection check failed: ${introspectionError instanceof Error ? introspectionError.message : String(introspectionError)}`;
+      }
+      
+      // Determine overall success
+      result.success = result.healthCheck.success || result.schemaCheck.success || result.introspectionCheck.success;
+      
+      // Set overall message
+      if (result.success) {
+        const successfulChecks = [
+          result.healthCheck.success ? 'health' : null,
+          result.schemaCheck.success ? 'schema' : null,
+          result.introspectionCheck.success ? 'introspection' : null
+        ].filter(Boolean).join(', ');
+        
+        result.message = `Connection successful! Passed checks: ${successfulChecks}`;
+      } else {
+        result.message = 'Connection failed. All endpoint checks failed.';
+      }
+      
+      return result;
     } catch (error) {
       console.error('Connection test failed:', error);
-      return false;
+      result.message = `Connection test failed: ${error instanceof Error ? error.message : String(error)}`;
+      return result;
     }
+  }
+  
+  // Simple connection test (backward compatibility)
+  async testConnectionSimple(): Promise<boolean> {
+    const result = await this.testConnection();
+    return result.success;
   }
   
   // Get GraphQL schema
