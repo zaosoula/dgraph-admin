@@ -1,6 +1,6 @@
 <script setup lang="ts">
 import { ref, onMounted, watch, nextTick } from 'vue'
-import { buildClientSchema, getIntrospectionQuery, IntrospectionQuery } from 'graphql'
+import { buildSchema, GraphQLSchema } from 'graphql'
 import { useDgraphClient } from '@/composables/useDgraphClient'
 import { useConnectionsStore } from '@/stores/connections'
 import * as d3 from 'd3'
@@ -14,7 +14,7 @@ const dgraphClient = useDgraphClient()
 
 const isLoading = ref(false)
 const error = ref<string | null>(null)
-const introspectionData = ref<IntrospectionQuery | null>(null)
+const schemaText = ref<string>('')
 const containerRef = ref<HTMLDivElement | null>(null)
 const debugInfo = ref<string | null>(null)
 
@@ -38,8 +38,8 @@ type GraphData = {
   links: GraphLink[]
 }
 
-// Load introspection data from the GraphQL endpoint
-const loadIntrospectionData = async () => {
+// Load schema from Dgraph
+const loadSchema = async () => {
   if (!connectionsStore.activeConnection) {
     error.value = 'No active connection'
     return
@@ -50,8 +50,16 @@ const loadIntrospectionData = async () => {
   debugInfo.value = null
   
   try {
-    // Execute the introspection query
-    const result = await dgraphClient.executeQuery(getIntrospectionQuery())
+    // If schema is provided via props, use it
+    if (props.schema) {
+      schemaText.value = props.schema
+      debugInfo.value = `Using schema from props (${props.schema.length} characters)`
+      processSchema()
+      return
+    }
+    
+    // Otherwise fetch from Dgraph
+    const result = await dgraphClient.getSchema()
     
     if (result.error) {
       error.value = result.error.message
@@ -59,12 +67,12 @@ const loadIntrospectionData = async () => {
       return
     }
     
-    if (result.data) {
-      introspectionData.value = result.data as IntrospectionQuery
-      debugInfo.value = `Received introspection data with ${Object.keys(introspectionData.value.__schema.types).length} types`
-      processIntrospectionData()
+    if (result.data?.schema) {
+      schemaText.value = result.data.schema
+      debugInfo.value = `Received schema (${schemaText.value.length} characters)`
+      processSchema()
     } else {
-      error.value = 'No data returned from introspection query'
+      error.value = 'No schema returned from Dgraph'
     }
   } catch (err) {
     error.value = err instanceof Error ? err.message : String(err)
@@ -74,15 +82,16 @@ const loadIntrospectionData = async () => {
   }
 }
 
-// Process introspection data to create graph structure
-const processIntrospectionData = () => {
-  if (!introspectionData.value) {
-    debugInfo.value = 'No introspection data to process'
+// Process GraphQL schema to create graph structure
+const processSchema = () => {
+  if (!schemaText.value) {
+    debugInfo.value = 'No schema to process'
     return
   }
   
   try {
-    const schema = buildClientSchema(introspectionData.value)
+    // Parse the schema
+    const schema = buildSchema(schemaText.value)
     const typeMap = schema.getTypeMap()
     
     const graphData: GraphData = {
@@ -97,11 +106,14 @@ const processIntrospectionData = () => {
       // Skip built-in types (those starting with __)
       if (typeName.startsWith('__')) return
       
+      // Skip common scalar types
+      if (['String', 'Int', 'Float', 'Boolean', 'ID'].includes(typeName)) return
+      
       // Create node for each type
       const node: GraphNode = {
         id: typeName,
         name: typeName,
-        kind: type.astNode?.kind || 'OBJECT',
+        kind: type.constructor.name.replace('GraphQL', ''),
         fields: []
       }
       
@@ -112,10 +124,14 @@ const processIntrospectionData = () => {
         
         // Create links for field relationships
         Object.values(fields).forEach(field => {
-          const fieldType = field.type.toString().replace(/[[\]!]/g, '')
+          let fieldType = field.type.toString()
           
-          // Skip scalar types for links
-          if (!fieldType.startsWith('__') && !['String', 'Int', 'Float', 'Boolean', 'ID'].includes(fieldType)) {
+          // Remove brackets and exclamation marks
+          fieldType = fieldType.replace(/[[\]!]/g, '')
+          
+          // Skip scalar types and built-in types for links
+          if (!fieldType.startsWith('__') && 
+              !['String', 'Int', 'Float', 'Boolean', 'ID'].includes(fieldType)) {
             graphData.links.push({
               source: typeName,
               target: fieldType,
@@ -323,16 +339,18 @@ const renderGraph = (data: GraphData) => {
 // Get color based on node kind
 const getNodeColor = (kind: string) => {
   switch (kind) {
-    case 'OBJECT':
+    case 'ObjectType':
       return '#e6f7ff'
-    case 'INTERFACE':
+    case 'InterfaceType':
       return '#fff7e6'
-    case 'ENUM':
+    case 'EnumType':
       return '#f6ffed'
-    case 'INPUT_OBJECT':
+    case 'InputObjectType':
       return '#fff1f0'
-    case 'SCALAR':
+    case 'ScalarType':
       return '#f9f0ff'
+    case 'UnionType':
+      return '#f0f5ff'
     default:
       return '#f0f2f5'
   }
@@ -347,30 +365,31 @@ const showNodeDetails = (node: GraphNode) => {
 // Watch for active connection changes
 watch(() => connectionsStore.activeConnectionId, (newId) => {
   if (newId) {
-    loadIntrospectionData()
+    loadSchema()
   }
 })
 
 // Watch for schema changes from props
 watch(() => props.schema, (newSchema) => {
-  if (newSchema && connectionsStore.activeConnectionId) {
-    loadIntrospectionData()
+  if (newSchema) {
+    schemaText.value = newSchema
+    processSchema()
   }
 })
 
 // Initialize
 onMounted(() => {
-  if (connectionsStore.activeConnectionId) {
+  if (connectionsStore.activeConnectionId || props.schema) {
     // Add a small delay to ensure the container is properly rendered
     setTimeout(() => {
-      loadIntrospectionData()
+      loadSchema()
     }, 500)
   }
   
   // Handle window resize
   window.addEventListener('resize', () => {
-    if (introspectionData.value) {
-      processIntrospectionData()
+    if (schemaText.value) {
+      processSchema()
     }
   })
 })
@@ -385,8 +404,8 @@ onMounted(() => {
         <UiButton 
           variant="outline" 
           size="sm" 
-          @click="loadIntrospectionData" 
-          :disabled="isLoading || !connectionsStore.activeConnection"
+          @click="loadSchema" 
+          :disabled="isLoading || (!connectionsStore.activeConnection && !props.schema)"
         >
           Reload
         </UiButton>
