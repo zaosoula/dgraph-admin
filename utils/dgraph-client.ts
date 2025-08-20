@@ -52,75 +52,159 @@ export class DgraphClient {
   // Test connection
   async testConnection(): Promise<boolean> {
     try {
-      const response = await fetch(`${this.connection.url}/health`, {
-        method: 'GET',
-        headers: this.headers
-      })
+      // First try the health endpoint
+      try {
+        const healthResponse = await fetch(`${this.connection.url}/health`, {
+          method: 'GET',
+          headers: this.headers
+        });
+        
+        if (healthResponse.ok) {
+          return true;
+        }
+      } catch (healthError) {
+        console.debug('Health endpoint check failed, trying admin endpoint:', healthError);
+      }
       
-      return response.ok
+      // If health endpoint fails, try the admin endpoint with a simple query
+      const query = `{ __typename }`;
+      
+      const adminResponse = await fetch(`${this.connection.url}/admin`, {
+        method: 'POST',
+        headers: {
+          ...this.headers,
+          'Content-Type': 'application/json'
+        },
+        body: JSON.stringify({ query })
+      });
+      
+      return adminResponse.ok;
     } catch (error) {
-      console.error('Connection test failed:', error)
-      return false
+      console.error('Connection test failed:', error);
+      return false;
     }
   }
   
   // Get GraphQL schema
   async getSchema(): Promise<DgraphResponse<GraphQLSchema>> {
     try {
-      const response = await fetch(`${this.connection.url}/admin/schema`, {
-        method: 'GET',
-        headers: this.headers
-      })
+      // Using the correct GraphQL query to get schema from /admin endpoint
+      const query = `
+        {
+          getGQLSchema {
+            schema
+          }
+        }
+      `;
+      
+      const response = await fetch(`${this.connection.url}/admin`, {
+        method: 'POST',
+        headers: {
+          ...this.headers,
+          'Content-Type': 'application/json'
+        },
+        body: JSON.stringify({ query })
+      });
       
       if (!response.ok) {
-        const errorText = await response.text()
+        const errorText = await response.text();
         return {
           error: {
             message: 'Failed to fetch schema',
             details: errorText
           }
-        }
+        };
       }
       
-      const data = await response.json()
-      return { data: { schema: data.schema || '' } }
+      const data = await response.json();
+      
+      // Check for GraphQL errors
+      if (data.errors) {
+        return {
+          error: {
+            message: 'Failed to fetch schema',
+            details: JSON.stringify(data.errors)
+          }
+        };
+      }
+      
+      // Extract schema from the response
+      const schema = data.data?.getGQLSchema?.schema || '';
+      return { data: { schema } };
     } catch (error) {
       return {
         error: {
           message: 'Failed to fetch schema',
           details: error instanceof Error ? error.message : String(error)
         }
-      }
+      };
     }
   }
   
   // Update GraphQL schema
   async updateSchema(schema: string): Promise<DgraphResponse<{ success: boolean }>> {
     try {
-      const response = await fetch(`${this.connection.url}/admin/schema`, {
+      // Using the correct GraphQL mutation to update schema from /admin endpoint
+      const mutation = `
+        mutation UpdateGQLSchema($input: UpdateGQLSchemaInput!) {
+          updateGQLSchema(input: $input) {
+            gqlSchema {
+              schema
+            }
+          }
+        }
+      `;
+      
+      const variables = {
+        input: {
+          set: {
+            schema
+          }
+        }
+      };
+      
+      const response = await fetch(`${this.connection.url}/admin`, {
         method: 'POST',
-        headers: this.headers,
-        body: JSON.stringify({ schema })
-      })
+        headers: {
+          ...this.headers,
+          'Content-Type': 'application/json'
+        },
+        body: JSON.stringify({
+          query: mutation,
+          variables
+        })
+      });
       
       if (!response.ok) {
-        const errorText = await response.text()
+        const errorText = await response.text();
         return {
           error: {
             message: 'Failed to update schema',
             details: errorText
           }
-        }
+        };
       }
       
-      return { data: { success: true } }
+      const data = await response.json();
+      
+      // Check for GraphQL errors
+      if (data.errors) {
+        return {
+          error: {
+            message: 'Failed to update schema',
+            details: JSON.stringify(data.errors)
+          }
+        };
+      }
+      
+      return { data: { success: true } };
     } catch (error) {
       return {
         error: {
           message: 'Failed to update schema',
           details: error instanceof Error ? error.message : String(error)
         }
-      }
+      };
     }
   }
   
@@ -158,4 +242,3 @@ export class DgraphClient {
     }
   }
 }
-
