@@ -1,4 +1,4 @@
-import type { Connection, ConnectionCredentials } from '@/types/connection'
+import type { Connection, ConnectionCredentials, AuthCredentials } from '@/types/connection'
 
 // GraphQL schema type
 export type GraphQLSchema = {
@@ -54,39 +54,44 @@ export class DgraphClient {
     const { credentials } = this.connection
     
     // Setup GraphQL endpoint headers
-    if (credentials.graphql.apiKey) {
-      this.graphqlHeaders['X-Dgraph-ApiKey'] = credentials.graphql.apiKey
-    }
-    
-    if (credentials.graphql.authToken) {
-      this.graphqlHeaders['X-Dgraph-AuthToken'] = credentials.graphql.authToken
-    }
-    
-    if (credentials.graphql.token) {
-      this.graphqlHeaders['Authorization'] = `Bearer ${credentials.graphql.token}`
-    }
-    
-    if (credentials.graphql.username && credentials.graphql.password) {
-      const base64Credentials = btoa(`${credentials.graphql.username}:${credentials.graphql.password}`)
-      this.graphqlHeaders['Authorization'] = `Basic ${base64Credentials}`
-    }
+    this.setupAuthHeaders(credentials.graphql, this.graphqlHeaders)
     
     // Setup Admin endpoint headers
-    if (credentials.admin.apiKey) {
-      this.adminHeaders['X-Dgraph-ApiKey'] = credentials.admin.apiKey
+    this.setupAuthHeaders(credentials.admin, this.adminHeaders)
+  }
+  
+  private setupAuthHeaders(authCredentials: AuthCredentials, headers: Record<string, string>) {
+    // Skip if no authentication is required
+    if (authCredentials.method === 'none') {
+      return
     }
     
-    if (credentials.admin.authToken) {
-      this.adminHeaders['X-Dgraph-AuthToken'] = credentials.admin.authToken
-    }
-    
-    if (credentials.admin.token) {
-      this.adminHeaders['Authorization'] = `Bearer ${credentials.admin.token}`
-    }
-    
-    if (credentials.admin.username && credentials.admin.password) {
-      const base64Credentials = btoa(`${credentials.admin.username}:${credentials.admin.password}`)
-      this.adminHeaders['Authorization'] = `Basic ${base64Credentials}`
+    // Apply the appropriate authentication method
+    switch (authCredentials.method) {
+      case 'api-key':
+        if (authCredentials.apiKey) {
+          headers['X-Dgraph-ApiKey'] = authCredentials.apiKey
+        }
+        break
+        
+      case 'auth-token':
+        if (authCredentials.authToken) {
+          headers['X-Dgraph-AuthToken'] = authCredentials.authToken
+        }
+        break
+        
+      case 'token':
+        if (authCredentials.token) {
+          headers['Authorization'] = `Bearer ${authCredentials.token}`
+        }
+        break
+        
+      case 'basic':
+        if (authCredentials.username && authCredentials.password) {
+          const base64Credentials = btoa(`${authCredentials.username}:${authCredentials.password}`)
+          headers['Authorization'] = `Basic ${base64Credentials}`
+        }
+        break
     }
   }
   
