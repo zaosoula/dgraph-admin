@@ -240,9 +240,14 @@ const processSchema = () => {
           // Remove brackets and exclamation marks for link target
           const cleanFieldType = fieldType.replace(/[[\]!]/g, '')
           
-          // Skip scalar types and built-in types for links
+          // Skip scalar types, built-in types, and any type that's not in our node list
           if (!cleanFieldType.startsWith('__') && 
-              !['String', 'Int', 'Float', 'Boolean', 'ID'].includes(cleanFieldType)) {
+              !['String', 'Int', 'Float', 'Boolean', 'ID'].includes(cleanFieldType) &&
+              // Skip if the target is a scalar type (like DateTime)
+              !(typeMap[cleanFieldType] && typeMap[cleanFieldType].constructor.name === 'GraphQLScalarType')) {
+            
+            // Only create links to nodes that will exist in our graph
+            // We'll collect all links first, then filter them later to ensure all targets exist
             graphData.links.push({
               source: typeName,
               target: cleanFieldType,
@@ -253,6 +258,14 @@ const processSchema = () => {
       }
       
       graphData.nodes.push(node)
+    })
+    
+    // Create a set of node IDs for quick lookup
+    const nodeIds = new Set(graphData.nodes.map(node => node.id))
+    
+    // Filter links to ensure all targets exist in our node list
+    graphData.links = graphData.links.filter(link => {
+      return nodeIds.has(link.target)
     })
     
     nextTick(() => {
@@ -272,6 +285,21 @@ const renderGraph = (data: GraphData) => {
   }
   
   try {
+    // Validate data before rendering
+    if (!data.nodes || !data.links) {
+      error.value = 'Invalid graph data: missing nodes or links'
+      return
+    }
+    
+    // Ensure all link sources and targets exist in the nodes
+    const nodeIds = new Set(data.nodes.map(node => node.id))
+    const invalidLinks = data.links.filter(link => !nodeIds.has(link.source) || !nodeIds.has(link.target))
+    
+    if (invalidLinks.length > 0) {
+      console.warn('Found invalid links with missing source or target nodes:', invalidLinks)
+      // Filter out invalid links
+      data.links = data.links.filter(link => nodeIds.has(link.source) && nodeIds.has(link.target))
+    }
     // Clear previous graph
     d3.select(containerRef.value).selectAll('*').remove()
     
