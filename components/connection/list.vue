@@ -2,9 +2,16 @@
 import { computed } from 'vue'
 import { useConnectionsStore } from '@/stores/connections'
 import { useDgraphClient } from '@/composables/useDgraphClient'
+import { useConnectionExportImport } from '@/composables/useConnectionExportImport'
+
+const emit = defineEmits<{
+  'edit': [id: string]
+  'delete': [id: string]
+}>()
 
 const connectionsStore = useConnectionsStore()
 const dgraphClient = useDgraphClient()
+const { exportConnection } = useConnectionExportImport()
 
 const connections = computed(() => connectionsStore.connections)
 const activeConnectionId = computed(() => connectionsStore.activeConnectionId)
@@ -18,6 +25,12 @@ const setActiveConnection = (id: string) => {
 // Test connection
 const testConnection = async (id: string) => {
   await dgraphClient.testConnection(connections.value.find(c => c.id === id))
+}
+
+// Export connection
+const handleExportConnection = (id: string, event: Event) => {
+  event.stopPropagation()
+  exportConnection(id)
 }
 
 // Format date
@@ -82,7 +95,16 @@ const formatDate = (date: Date) => {
             <UiButton 
               variant="outline" 
               size="sm"
-              @click.stop="$emit('edit', connection.id)"
+              @click.stop="handleExportConnection(connection.id, $event)"
+              title="Export Connection"
+            >
+              Export
+            </UiButton>
+            
+            <UiButton 
+              variant="outline" 
+              size="sm"
+              @click.stop="emit('edit', connection.id)"
             >
               Edit
             </UiButton>
@@ -90,7 +112,7 @@ const formatDate = (date: Date) => {
             <UiButton 
               variant="destructive" 
               size="sm"
-              @click.stop="$emit('delete', connection.id)"
+              @click.stop="emit('delete', connection.id)"
             >
               Delete
             </UiButton>
@@ -100,4 +122,3 @@ const formatDate = (date: Date) => {
     </div>
   </div>
 </template>
-
