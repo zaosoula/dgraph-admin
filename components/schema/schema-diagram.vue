@@ -400,19 +400,47 @@ const renderGraph = (data: GraphData, wasInFocusMode = false) => {
             links: JSON.parse(JSON.stringify(data.links))
           }
           
-          // Force a complete DOM cleanup and re-render with fresh data
-          setTimeout(() => {
-            // Clear the container completely
-            if (containerRef.value) {
-              d3.select(containerRef.value).selectAll('*').remove()
+          // Properly clean up D3 resources before DOM manipulation
+          if (simulation) {
+            // Stop the simulation to prevent any ongoing ticks
+            simulation.stop()
+            
+            // Remove all forces to prevent any references to DOM elements
+            simulation.force('link', null)
+            simulation.force('charge', null)
+            simulation.force('center', null)
+            simulation.force('collision', null)
+            simulation.force('x', null)
+            simulation.force('y', null)
+            
+            // Clear nodes to prevent any references
+            simulation.nodes([])
+            
+            console.log('Stopped and cleared simulation')
+          }
+          
+          // Safely clear the DOM with proper cleanup
+          if (containerRef.value) {
+            try {
+              // First remove event listeners
+              d3.select(containerRef.value).selectAll('*').on('.', null)
               
-              // Force a small delay before re-rendering to ensure complete cleanup
-              setTimeout(() => {
-                // Render with completely fresh data and special flag
+              // Then clear the DOM
+              d3.select(containerRef.value).selectAll('*').remove()
+              console.log('Cleared all DOM elements and event handlers')
+              
+              // Render with completely fresh data and special flag
+              // Use requestAnimationFrame to ensure browser has processed DOM changes
+              window.requestAnimationFrame(() => {
+                console.log('Re-rendering with fresh data')
                 renderGraph(freshData, true)
-              }, 100)
+              })
+            } catch (err) {
+              console.error('Error during cleanup:', err)
+              // Fallback rendering if cleanup fails
+              renderGraph(freshData, true)
             }
-          }, 50)
+          }
         }
       })
     
@@ -899,21 +927,47 @@ const renderGraph = (data: GraphData, wasInFocusMode = false) => {
         
         console.log('Created fresh data with no position information')
         
-        // Force a complete DOM cleanup and re-render with fresh data
-        setTimeout(() => {
-          // Clear the container completely
-          if (containerRef.value) {
-            d3.select(containerRef.value).selectAll('*').remove()
-            console.log('Cleared all DOM elements')
+        // Properly clean up D3 resources before DOM manipulation
+        if (simulation) {
+          // Stop the simulation to prevent any ongoing ticks
+          simulation.stop()
+          
+          // Remove all forces to prevent any references to DOM elements
+          simulation.force('link', null)
+          simulation.force('charge', null)
+          simulation.force('center', null)
+          simulation.force('collision', null)
+          simulation.force('x', null)
+          simulation.force('y', null)
+          
+          // Clear nodes to prevent any references
+          simulation.nodes([])
+          
+          console.log('Stopped and cleared simulation')
+        }
+        
+        // Safely clear the DOM with proper cleanup
+        if (containerRef.value) {
+          try {
+            // First remove event listeners
+            d3.select(containerRef.value).selectAll('*').on('.', null)
             
-            // Force a small delay before re-rendering to ensure complete cleanup
-            setTimeout(() => {
+            // Then clear the DOM
+            d3.select(containerRef.value).selectAll('*').remove()
+            console.log('Cleared all DOM elements and event handlers')
+            
+            // Render with completely fresh data and special flag
+            // Use requestAnimationFrame to ensure browser has processed DOM changes
+            window.requestAnimationFrame(() => {
               console.log('Re-rendering with fresh data')
-              // Render with completely fresh data and special flag for strong forces
               renderGraph(freshData, true)
-            }, 100)
+            })
+          } catch (err) {
+            console.error('Error during cleanup:', err)
+            // Fallback rendering if cleanup fails
+            renderGraph(freshData, true)
           }
-        }, 50)
+        }
       })
     
     // Add a layout button
@@ -1013,21 +1067,47 @@ const renderGraph = (data: GraphData, wasInFocusMode = false) => {
           
           console.log('Created fresh data with no position information')
           
-          // Force a complete DOM cleanup and re-render with fresh data
-          setTimeout(() => {
-            // Clear the container completely
-            if (containerRef.value) {
-              d3.select(containerRef.value).selectAll('*').remove()
-              console.log('Cleared all DOM elements')
+          // Properly clean up D3 resources before DOM manipulation
+          if (simulation) {
+            // Stop the simulation to prevent any ongoing ticks
+            simulation.stop()
+            
+            // Remove all forces to prevent any references to DOM elements
+            simulation.force('link', null)
+            simulation.force('charge', null)
+            simulation.force('center', null)
+            simulation.force('collision', null)
+            simulation.force('x', null)
+            simulation.force('y', null)
+            
+            // Clear nodes to prevent any references
+            simulation.nodes([])
+            
+            console.log('Stopped and cleared simulation')
+          }
+          
+          // Safely clear the DOM with proper cleanup
+          if (containerRef.value) {
+            try {
+              // First remove event listeners
+              d3.select(containerRef.value).selectAll('*').on('.', null)
               
-              // Force a small delay before re-rendering to ensure complete cleanup
-              setTimeout(() => {
+              // Then clear the DOM
+              d3.select(containerRef.value).selectAll('*').remove()
+              console.log('Cleared all DOM elements and event handlers')
+              
+              // Render with completely fresh data and special flag
+              // Use requestAnimationFrame to ensure browser has processed DOM changes
+              window.requestAnimationFrame(() => {
                 console.log('Re-rendering with fresh data')
-                // Render with completely fresh data and special flag
                 renderGraph(freshData, true)
-              }, 100)
+              })
+            } catch (err) {
+              console.error('Error during cleanup:', err)
+              // Fallback rendering if cleanup fails
+              renderGraph(freshData, true)
             }
-          }, 50)
+          }
         })
     }
     
