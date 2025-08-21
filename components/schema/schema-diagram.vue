@@ -32,6 +32,8 @@ type GraphNode = {
   fields?: GraphField[]
   description?: string
   directives?: string[]
+  possibleTypes?: string[]  // For UnionType nodes
+  enumValues?: string[]     // For EnumType nodes
 }
 
 type GraphLink = {
@@ -190,6 +192,9 @@ const processSchema = () => {
       // Skip common scalar types
       if (['String', 'Int', 'Float', 'Boolean', 'ID'].includes(typeName)) return
       
+      // Skip all ScalarType nodes as requested
+      if (type.constructor.name === 'GraphQLScalarType') return
+      
       // Create node for each type
       const node: GraphNode = {
         id: typeName,
@@ -212,8 +217,23 @@ const processSchema = () => {
             type: fieldTypeStr
           }
         })
-        
-        // Create links for field relationships
+      }
+      
+      // Add possible types for UnionType
+      if (type.constructor.name === 'GraphQLUnionType' && 'getTypes' in type && typeof type.getTypes === 'function') {
+        const possibleTypes = type.getTypes()
+        node.possibleTypes = possibleTypes.map(t => t.name)
+      }
+      
+      // Add enum values for EnumType
+      if (type.constructor.name === 'GraphQLEnumType' && 'getValues' in type && typeof type.getValues === 'function') {
+        const enumValues = type.getValues()
+        node.enumValues = enumValues.map(v => v.name)
+      }
+      
+      // Create links for field relationships if fields exist
+      if ('getFields' in type && typeof type.getFields === 'function') {
+        const fields = type.getFields()
         Object.values(fields).forEach(field => {
           let fieldType = field.type.toString()
           
@@ -407,11 +427,13 @@ const renderGraph = (data: GraphData) => {
         renderGraph(data) // Re-render the graph with the new focus
       })
     
-    // Calculate node height based on fields and directives
+    // Calculate node height based on fields, directives, possible types, and enum values
     const getNodeHeight = (d: GraphNode) => {
       const isFocused = focusedNodeId.value === d.id
       const fieldCount = d.fields?.length || 0
       const directiveCount = d.directives?.length || 0
+      const possibleTypeCount = d.possibleTypes?.length || 0
+      const enumValueCount = d.enumValues?.length || 0
       const baseHeight = 40 // Title height
       
       // Show all fields for focused node, otherwise limit to 5
@@ -419,7 +441,14 @@ const renderGraph = (data: GraphData) => {
       const directiveHeight = directiveCount > 0 ? 20 : 0 // Space for directives
       const moreFieldsHeight = !isFocused && fieldCount > 5 ? 20 : 0 // "... more" text
       
-      return baseHeight + fieldHeight + directiveHeight + moreFieldsHeight
+      // Add space for possible types (UnionType) and enum values (EnumType)
+      const possibleTypesHeight = possibleTypeCount > 0 ? 
+        (isFocused ? Math.min(possibleTypeCount, 10) : Math.min(possibleTypeCount, 3)) * 20 + 20 : 0
+      
+      const enumValuesHeight = enumValueCount > 0 ? 
+        (isFocused ? Math.min(enumValueCount, 10) : Math.min(enumValueCount, 3)) * 20 + 20 : 0
+      
+      return baseHeight + fieldHeight + directiveHeight + moreFieldsHeight + possibleTypesHeight + enumValuesHeight
     }
     
     // Add node rectangles with improved styling
@@ -448,6 +477,33 @@ const renderGraph = (data: GraphData) => {
       .attr('font-weight', 'bold')
       .attr('font-size', 12)
       .text(d => d.name)
+      
+    // Add kind pill next to node title
+    node.each(function(d) {
+      const nodeGroup = d3.select(this)
+      const titleText = nodeGroup.select('text')
+      const titleBBox = titleText.node().getBBox()
+      const pillX = titleBBox.x + titleBBox.width + 10
+      
+      // Create pill background
+      nodeGroup.append('rect')
+        .attr('x', pillX)
+        .attr('y', titleBBox.y - 2)
+        .attr('width', d.kind.length * 6 + 10)
+        .attr('height', 16)
+        .attr('rx', 8)
+        .attr('ry', 8)
+        .attr('fill', getNodeStrokeColor(d.kind))
+        .attr('opacity', 0.2)
+      
+      // Create pill text
+      nodeGroup.append('text')
+        .attr('x', pillX + 5)
+        .attr('y', 20)
+        .attr('font-size', 9)
+        .attr('fill', getNodeStrokeColor(d.kind))
+        .text(d.kind)
+    })
     
     // Add directives if any
     node.each(function(d) {
@@ -503,6 +559,130 @@ const renderGraph = (data: GraphData) => {
           .attr('fill', '#666')
           .text(`... ${fields.length - 5} more`)
       }
+      
+      // Display possible types for UnionType nodes
+      if (d.possibleTypes && d.possibleTypes.length > 0) {
+        // Calculate the y position based on fields
+        const fieldOffset = 40 + directiveOffset + 
+          (isFocused ? fields.length : Math.min(fields.length, 5)) * 20 + 
+          (!isFocused && fields.length > 5 ? 20 : 0)
+        
+        // Add section title
+        nodeGroup.append('text')
+          .attr('x', 10)
+          .attr('y', fieldOffset + 15)
+          .attr('font-weight', 'bold')
+          .attr('font-size', 11)
+          .text('Possible Types:')
+        
+        // Show all possible types for focused node, otherwise limit to 3
+        const displayPossibleTypes = isFocused ? 
+          d.possibleTypes.slice(0, 10) : 
+          d.possibleTypes.slice(0, 3)
+        
+        // Add each possible type
+        displayPossibleTypes.forEach((type, i) => {
+          nodeGroup.append('text')
+            .attr('x', 15)
+            .attr('y', fieldOffset + 35 + i * 20)
+            .attr('font-size', 11)
+            .text(type)
+        })
+        
+        // Show "... more" if needed
+        if (!isFocused && d.possibleTypes.length > 3) {
+          nodeGroup.append('text')
+            .attr('x', 15)
+            .attr('y', fieldOffset + 35 + 3 * 20)
+            .attr('font-size', 11)
+            .attr('fill', '#666')
+            .text(`... ${d.possibleTypes.length - 3} more`)
+        }
+      }
+      
+      // Display enum values for EnumType nodes
+      if (d.enumValues && d.enumValues.length > 0) {
+        // Calculate the y position based on fields and possible types
+        const fieldOffset = 40 + directiveOffset + 
+          (isFocused ? fields.length : Math.min(fields.length, 5)) * 20 + 
+          (!isFocused && fields.length > 5 ? 20 : 0)
+        
+        const possibleTypesOffset = d.possibleTypes && d.possibleTypes.length > 0 ?
+          20 + (isFocused ? Math.min(d.possibleTypes.length, 10) : Math.min(d.possibleTypes.length, 3)) * 20 +
+          (!isFocused && d.possibleTypes.length > 3 ? 20 : 0) : 0
+        
+        const yPosition = fieldOffset + possibleTypesOffset
+        
+        // Add section title
+        nodeGroup.append('text')
+          .attr('x', 10)
+          .attr('y', yPosition + 15)
+          .attr('font-weight', 'bold')
+          .attr('font-size', 11)
+          .text('Enum Values:')
+        
+        // Show all enum values for focused node, otherwise limit to 3
+        const displayEnumValues = isFocused ? 
+          d.enumValues.slice(0, 10) : 
+          d.enumValues.slice(0, 3)
+        
+        // Add each enum value
+        displayEnumValues.forEach((value, i) => {
+          nodeGroup.append('text')
+            .attr('x', 15)
+            .attr('y', yPosition + 35 + i * 20)
+            .attr('font-size', 11)
+            .text(value)
+        })
+        
+        // Show "... more" if needed
+        if (!isFocused && d.enumValues.length > 3) {
+          nodeGroup.append('text')
+            .attr('x', 15)
+            .attr('y', yPosition + 35 + 3 * 20)
+            .attr('font-size', 11)
+            .attr('fill', '#666')
+            .text(`... ${d.enumValues.length - 3} more`)
+        }
+      }
+    })
+    
+    // Add a legend below the graph
+    const legendContainer = d3.select(containerRef.value)
+      .append('div')
+      .attr('class', 'absolute bottom-4 left-4 bg-white p-3 rounded shadow-md')
+    
+    // Add legend title
+    legendContainer.append('div')
+      .attr('class', 'font-bold text-sm mb-2')
+      .text('Legend')
+    
+    // Create a grid for the legend items
+    const legendGrid = legendContainer.append('div')
+      .attr('class', 'grid grid-cols-2 gap-2')
+    
+    // Add legend items for each node type
+    const nodeTypes = [
+      { kind: 'ObjectType', label: 'Object' },
+      { kind: 'InterfaceType', label: 'Interface' },
+      { kind: 'EnumType', label: 'Enum' },
+      { kind: 'InputObjectType', label: 'Input' },
+      { kind: 'UnionType', label: 'Union' }
+    ]
+    
+    nodeTypes.forEach(type => {
+      const item = legendGrid.append('div')
+        .attr('class', 'flex items-center')
+      
+      // Add color indicator
+      item.append('div')
+        .attr('class', 'w-3 h-3 mr-2 rounded-sm')
+        .style('background-color', getNodeStrokeColor(type.kind))
+      
+      // Add label
+      item.append('div')
+        .attr('class', 'text-xs')
+        .text(type.label)
     })
     
     // Add a search box for filtering nodes
