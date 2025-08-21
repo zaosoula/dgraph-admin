@@ -526,7 +526,7 @@ const renderGraph = (data: GraphData) => {
       // Add a label for focus mode
       searchContainer.append('div')
         .attr('class', 'text-xs font-medium mb-1 text-blue-800')
-        .text(`Focus Mode: ${data.nodes.find(n => n.id === focusedNodeId.value)?.name}`)
+        .text(`Focus Mode: ${data.nodes.find(n => n.id === focusedNodeId.value)?.name} (locked at center)`)
       
       // Add depth control
       const depthControl = searchContainer.append('div')
@@ -575,6 +575,26 @@ const renderGraph = (data: GraphData) => {
     
     // Update positions on simulation tick
     simulation.on('tick', () => {
+      // If a node is focused, lock it to the center of the viewport
+      if (focusedNodeId.value) {
+        const focusedNode = filteredData.nodes.find(n => n.id === focusedNodeId.value)
+        if (focusedNode) {
+          // Set the focused node position to the center
+          const centerX = width / 2
+          const centerY = height / 2
+          
+          // Calculate the offset between current position and center
+          const dx = centerX - (focusedNode as any).x
+          const dy = centerY - (focusedNode as any).y
+          
+          // Apply the offset to all nodes to keep relative positions
+          filteredData.nodes.forEach((n: any) => {
+            n.x += dx
+            n.y += dy
+          })
+        }
+      }
+      
       link
         .attr('x1', (d: any) => d.source.x)
         .attr('y1', (d: any) => d.source.y)
@@ -598,9 +618,19 @@ const renderGraph = (data: GraphData) => {
         if (!event.active) simulation.alphaTarget(0.3).restart()
         event.subject.fx = event.subject.x
         event.subject.fy = event.subject.y
+        
+        // If this is the focused node, prevent dragging to keep it centered
+        if (focusedNodeId.value === event.subject.id) {
+          event.sourceEvent.stopPropagation()
+        }
       }
       
       function dragged(event: any) {
+        // If this is the focused node, don't allow dragging
+        if (focusedNodeId.value === event.subject.id) {
+          return
+        }
+        
         event.subject.fx = event.x
         event.subject.fy = event.y
       }
