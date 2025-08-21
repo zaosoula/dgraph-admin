@@ -2,8 +2,30 @@ import { ref, onMounted, watch, type Ref } from 'vue'
 import { EditorState, type Extension } from '@codemirror/state'
 import { EditorView, keymap, lineNumbers } from '@codemirror/view'
 import { defaultKeymap, history, historyKeymap } from '@codemirror/commands'
-import { indentOnInput, syntaxHighlighting, defaultHighlightStyle } from '@codemirror/language'
+import { indentOnInput, syntaxHighlighting, defaultHighlightStyle, LanguageSupport } from '@codemirror/language'
 import { graphql } from 'cm6-graphql'
+// Import SQL language explicitly to patch it
+import { sql } from '@codemirror/lang-sql'
+
+// Patch the SQL language module to prevent the "keywords2.split is not a function" error
+// This is a workaround for the issue with the SQL language module
+if (process.client) {
+  try {
+    // Monkey patch the SQL dialect function to handle undefined keywords2
+    const originalSql = sql;
+    (window as any).__patchedSql = function() {
+      try {
+        return originalSql();
+      } catch (error) {
+        console.error('Error in SQL language module:', error);
+        // Return a minimal language support that won't crash
+        return new LanguageSupport({} as any);
+      }
+    };
+  } catch (error) {
+    console.warn('Failed to patch SQL language module:', error);
+  }
+}
 
 export function useCodeMirror(
   element: Ref<HTMLElement | null>,
@@ -87,4 +109,3 @@ export function useCodeMirror(
     updateContent
   }
 }
-

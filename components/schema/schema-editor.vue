@@ -25,14 +25,25 @@ const editorElement = ref<HTMLElement | null>(null)
 const showDiff = ref(false)
 const showConfirmDialog = ref(false)
 
-// Initialize CodeMirror
-const { updateContent } = useCodeMirror(editorElement, schema.value, {
-  readOnly: props.readOnly,
-  onChange: (value) => {
-    schema.value = value
-    emit('update:schema', value)
-  }
+// Initialize CodeMirror with error handling
+const editorApi = ref<{ updateContent: (content: string) => void }>({ 
+  updateContent: () => {} // Default no-op function
 })
+
+try {
+  const api = useCodeMirror(editorElement, schema.value, {
+    readOnly: props.readOnly,
+    onChange: (value) => {
+      schema.value = value
+      emit('update:schema', value)
+    }
+  })
+  
+  editorApi.value = api
+} catch (err) {
+  console.error('Error initializing CodeMirror:', err)
+  error.value = 'Failed to initialize code editor. Please check the console for details.'
+}
 
 // Compute the diff between original and current schema
 const schemaDiff = computed(() => {
@@ -120,7 +131,7 @@ const loadSchema = async () => {
     
     if (result.data) {
       schema.value = result.data.schema
-      updateContent(result.data.schema) // Update CodeMirror content
+      editorApi.value.updateContent(result.data.schema) // Update CodeMirror content
       originalSchema.value = result.data.schema // Store the original schema
       emit('update:schema', schema.value)
     }
@@ -220,7 +231,7 @@ watch(() => connectionsStore.activeConnectionId, (newId) => {
 watch(() => props.initialSchema, (newSchema) => {
   if (newSchema !== undefined && newSchema !== schema.value) {
     schema.value = newSchema
-    updateContent(newSchema)
+    editorApi.value.updateContent(newSchema)
   }
 })
 
@@ -327,4 +338,3 @@ onMounted(() => {
     </div>
   </div>
 </template>
-

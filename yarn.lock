@@ -352,6 +352,20 @@ __metadata:
   languageName: node
   linkType: hard
 
+"@codemirror/lang-sql@npm:^6.9.1":
+  version: 6.9.1
+  resolution: "@codemirror/lang-sql@npm:6.9.1"
+  dependencies:
+    "@codemirror/autocomplete": "npm:^6.0.0"
+    "@codemirror/language": "npm:^6.0.0"
+    "@codemirror/state": "npm:^6.0.0"
+    "@lezer/common": "npm:^1.2.0"
+    "@lezer/highlight": "npm:^1.0.0"
+    "@lezer/lr": "npm:^1.0.0"
+  checksum: 10c0/a1b8aaa64cc219c1e3f14b2100e521f84d13640c7c04240ab27de003de98242d6f5176bfd5b5f1a24accfef626d548246470d983dda000d0b1d2cd9788bd471f
+  languageName: node
+  linkType: hard
+
 "@codemirror/language@npm:^6.0.0, @codemirror/language@npm:^6.11.3":
   version: 6.11.3
   resolution: "@codemirror/language@npm:6.11.3"
@@ -1015,7 +1029,7 @@ __metadata:
   languageName: node
   linkType: hard
 
-"@lezer/common@npm:^1.0.0, @lezer/common@npm:^1.1.0":
+"@lezer/common@npm:^1.0.0, @lezer/common@npm:^1.1.0, @lezer/common@npm:^1.2.0":
   version: 1.2.3
   resolution: "@lezer/common@npm:1.2.3"
   checksum: 10c0/fe9f8e111080ef94037a34ca2af1221c8d01c1763ba5ecf708a286185c76119509a5d19d924c8842172716716ddce22d7834394670c4a9432f0ba9f3b7c0f50d
@@ -4969,6 +4983,7 @@ __metadata:
   dependencies:
     "@codemirror/autocomplete": "npm:^6.18.6"
     "@codemirror/commands": "npm:^6.8.1"
+    "@codemirror/lang-sql": "npm:^6.9.1"
     "@codemirror/language": "npm:^6.11.3"
     "@codemirror/lint": "npm:^6.8.5"
     "@codemirror/state": "npm:^6.5.2"
