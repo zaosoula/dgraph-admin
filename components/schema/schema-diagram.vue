@@ -20,11 +20,16 @@ const focusedNodeId = ref<string | null>(null)
 const maxDepth = ref(1) // Maximum depth for relationships when in focus mode
 
 // Graph data structure
+type GraphField = {
+  name: string
+  type: string
+}
+
 type GraphNode = {
   id: string
   name: string
   kind: string
-  fields?: string[]
+  fields?: GraphField[]
   description?: string
   directives?: string[]
 }
@@ -74,6 +79,23 @@ const stripDirectives = (schema: string): string => {
     console.error('Error preprocessing schema:', err)
     return schema
   }
+}
+
+// Format field type to be more readable
+const formatFieldType = (typeStr: string): string => {
+  // Make the type more compact by removing unnecessary details
+  let formatted = typeStr
+    // Remove GraphQL prefixes if present
+    .replace(/GraphQL(Object|Scalar|Interface|Union|Enum|List|NonNull)Type/g, '')
+    // Keep only the core type name for clarity
+    .replace(/^[^A-Za-z]+|[^A-Za-z0-9\[\]!]+$/g, '')
+  
+  // Limit the length to prevent overly long type names
+  if (formatted.length > 25) {
+    formatted = formatted.substring(0, 22) + '...'
+  }
+  
+  return formatted
 }
 
 // Extract directives from a type definition
@@ -180,21 +202,30 @@ const processSchema = () => {
       // Add fields if available
       if ('getFields' in type && typeof type.getFields === 'function') {
         const fields = type.getFields()
-        node.fields = Object.keys(fields)
+        node.fields = Object.entries(fields).map(([fieldName, field]) => {
+          // Extract the field type as a string
+          let fieldTypeStr = field.type.toString()
+          
+          // Store the original field type string for display
+          return {
+            name: fieldName,
+            type: fieldTypeStr
+          }
+        })
         
         // Create links for field relationships
         Object.values(fields).forEach(field => {
           let fieldType = field.type.toString()
           
-          // Remove brackets and exclamation marks
-          fieldType = fieldType.replace(/[[\]!]/g, '')
+          // Remove brackets and exclamation marks for link target
+          const cleanFieldType = fieldType.replace(/[[\]!]/g, '')
           
           // Skip scalar types and built-in types for links
-          if (!fieldType.startsWith('__') && 
-              !['String', 'Int', 'Float', 'Boolean', 'ID'].includes(fieldType)) {
+          if (!cleanFieldType.startsWith('__') && 
+              !['String', 'Int', 'Float', 'Boolean', 'ID'].includes(cleanFieldType)) {
             graphData.links.push({
               source: typeName,
-              target: fieldType,
+              target: cleanFieldType,
               relationship: field.name
             })
           }
@@ -394,10 +425,10 @@ const renderGraph = (data: GraphData) => {
     // Add node rectangles with improved styling
     node.append('rect')
       .attr('width', d => {
-        // Make focused node wider to accommodate all fields
+        // Make nodes wider to accommodate field types
         const isFocused = focusedNodeId.value === d.id
-        const baseWidth = Math.max(d.name.length * 8 + 30, 120)
-        return isFocused ? Math.max(baseWidth, 180) : baseWidth
+        const baseWidth = Math.max(d.name.length * 8 + 30, 180) // Increased minimum width
+        return isFocused ? Math.max(baseWidth, 240) : baseWidth // Wider for focused nodes
       })
       .attr('height', d => getNodeHeight(d))
       .attr('rx', 6)
@@ -443,11 +474,24 @@ const renderGraph = (data: GraphData) => {
       const directiveOffset = d.directives && d.directives.length > 0 ? 20 : 0
       
       displayFields.forEach((field, i) => {
-        nodeGroup.append('text')
-          .attr('x', 15)
-          .attr('y', 40 + directiveOffset + i * 20)
+        // Create a group for each field to contain name and type
+        const fieldGroup = nodeGroup.append('g')
+          .attr('transform', `translate(15, ${40 + directiveOffset + i * 20})`)
+        
+        // Add field name
+        fieldGroup.append('text')
           .attr('font-size', 11)
-          .text(field)
+          .text(field.name)
+        
+        // Add field type with different styling
+        // Format the type to be more compact
+        const formattedType = formatFieldType(field.type)
+        
+        fieldGroup.append('text')
+          .attr('font-size', 10)
+          .attr('fill', '#666')
+          .attr('x', field.name.length * 6 + 5) // Approximate spacing based on name length
+          .text(`: ${formattedType}`)
       })
       
       // Only show "... more" for non-focused nodes
@@ -639,7 +683,12 @@ const renderGraph = (data: GraphData) => {
           return `translate(${midX}, ${midY})`
         })
       
-      node.attr('transform', (d: any) => `translate(${d.x - 60}, ${d.y - 25})`)
+      node.attr('transform', function(d: any) {
+        // Center the node based on its width
+        const nodeWidth = d3.select(this).select('rect').attr('width') || 180
+        const offsetX = parseInt(nodeWidth) / 2
+        return `translate(${d.x - offsetX}, ${d.y - 25})`
+      })
     })
     
     // Create drag behavior
