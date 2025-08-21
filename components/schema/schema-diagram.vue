@@ -1,5 +1,5 @@
 <script setup lang="ts">
-import { ref, onMounted, watch, nextTick } from 'vue'
+import { ref, onMounted, watch, nextTick, computed } from 'vue'
 import { buildSchema, GraphQLSchema } from 'graphql'
 import { useDgraphClient } from '@/composables/useDgraphClient'
 import { useConnectionsStore } from '@/stores/connections'
@@ -16,6 +16,8 @@ const isLoading = ref(false)
 const error = ref<string | null>(null)
 const schemaText = ref<string>('')
 const containerRef = ref<HTMLDivElement | null>(null)
+const focusedNodeId = ref<string | null>(null)
+const maxDepth = ref(2) // Maximum depth for relationships when in focus mode
 
 // Graph data structure
 type GraphNode = {
@@ -233,6 +235,34 @@ const renderGraph = (data: GraphData) => {
       return
     }
     
+    // Apply focus mode filtering if a node is focused
+    let filteredData = { ...data }
+    let nodeDistances: Map<string, number> | null = null
+    
+    if (focusedNodeId.value) {
+      nodeDistances = calculateNodeDistances(data, focusedNodeId.value)
+      
+      // Filter nodes based on distance from focused node
+      const filteredNodes = data.nodes.filter(node => {
+        const distance = nodeDistances.get(node.id) || Infinity
+        return distance <= maxDepth.value
+      })
+      
+      // Filter links based on the filtered nodes
+      const filteredLinks = data.links.filter(link => {
+        const sourceId = typeof link.source === 'string' ? link.source : link.source.id
+        const targetId = typeof link.target === 'string' ? link.target : link.target.id
+        
+        return filteredNodes.some(n => n.id === sourceId) && 
+               filteredNodes.some(n => n.id === targetId)
+      })
+      
+      filteredData = {
+        nodes: filteredNodes,
+        links: filteredLinks
+      }
+    }
+    
     const width = containerRef.value.clientWidth || 800
     const height = 600
     
@@ -243,6 +273,13 @@ const renderGraph = (data: GraphData) => {
       .attr('height', height)
       .attr('viewBox', [0, 0, width, height])
       .attr('style', 'max-width: 100%; height: auto;')
+      .on('click', () => {
+        // Clear focus when clicking on the background
+        if (focusedNodeId.value) {
+          focusedNodeId.value = null
+          renderGraph(data)
+        }
+      })
     
     // Create zoom behavior
     const zoom = d3.zoom()
@@ -257,8 +294,8 @@ const renderGraph = (data: GraphData) => {
     const g = svg.append('g')
     
     // Improved force simulation with better parameters
-    const simulation = d3.forceSimulation(data.nodes as any)
-      .force('link', d3.forceLink(data.links as any)
+    const simulation = d3.forceSimulation(filteredData.nodes as any)
+      .force('link', d3.forceLink(filteredData.links as any)
         .id((d: any) => d.id)
         .distance(200)) // Increased distance between nodes
       .force('charge', d3.forceManyBody()
@@ -271,7 +308,7 @@ const renderGraph = (data: GraphData) => {
     // Create links with improved styling
     const link = g.append('g')
       .selectAll('line')
-      .data(data.links)
+      .data(filteredData.links)
       .join('line')
       .attr('stroke', '#ccc')
       .attr('stroke-opacity', 0.4)
@@ -283,7 +320,7 @@ const renderGraph = (data: GraphData) => {
     // First, create a group for each link label to properly handle the background
     const linkLabelGroups = g.append('g')
       .selectAll('g')
-      .data(data.links)
+      .data(filteredData.links)
       .join('g')
       .attr('class', 'link-label-group')
     
@@ -318,35 +355,47 @@ const renderGraph = (data: GraphData) => {
     // Create nodes with improved styling
     const node = g.append('g')
       .selectAll('g')
-      .data(data.nodes)
+      .data(filteredData.nodes)
       .join('g')
       .call(drag(simulation) as any)
       .on('click', (event, d) => {
-        // Show details when clicking on a node
-        showNodeDetails(d)
+        event.stopPropagation() // Prevent click from propagating to SVG
+        toggleFocusNode(d.id, data)
+        renderGraph(data) // Re-render the graph with the new focus
       })
     
     // Calculate node height based on fields and directives
     const getNodeHeight = (d: GraphNode) => {
+      const isFocused = focusedNodeId.value === d.id
       const fieldCount = d.fields?.length || 0
       const directiveCount = d.directives?.length || 0
       const baseHeight = 40 // Title height
-      const fieldHeight = Math.min(fieldCount, 5) * 20 // Up to 5 fields
+      
+      // Show all fields for focused node, otherwise limit to 5
+      const fieldHeight = (isFocused ? fieldCount : Math.min(fieldCount, 5)) * 20
       const directiveHeight = directiveCount > 0 ? 20 : 0 // Space for directives
-      const moreFieldsHeight = fieldCount > 5 ? 20 : 0 // "... more" text
+      const moreFieldsHeight = !isFocused && fieldCount > 5 ? 20 : 0 // "... more" text
       
       return baseHeight + fieldHeight + directiveHeight + moreFieldsHeight
     }
     
     // Add node rectangles with improved styling
     node.append('rect')
-      .attr('width', d => Math.max(d.name.length * 8 + 30, 120))
+      .attr('width', d => {
+        // Make focused node wider to accommodate all fields
+        const isFocused = focusedNodeId.value === d.id
+        const baseWidth = Math.max(d.name.length * 8 + 30, 120)
+        return isFocused ? Math.max(baseWidth, 180) : baseWidth
+      })
       .attr('height', d => getNodeHeight(d))
       .attr('rx', 6)
       .attr('ry', 6)
       .attr('fill', d => getNodeColor(d.kind))
-      .attr('stroke', d => getNodeStrokeColor(d.kind))
-      .attr('stroke-width', 1.5)
+      .attr('stroke', d => {
+        // Highlight the focused node with a more prominent border
+        return focusedNodeId.value === d.id ? '#1d4ed8' : getNodeStrokeColor(d.kind)
+      })
+      .attr('stroke-width', d => focusedNodeId.value === d.id ? 3 : 1.5)
       .attr('filter', 'drop-shadow(1px 1px 2px rgba(0,0,0,0.2))')
     
     // Add node titles with improved styling
@@ -371,11 +420,14 @@ const renderGraph = (data: GraphData) => {
       }
     })
     
-    // Add field names (limited to first 5 for readability)
+    // Add field names (all fields for focused node, limited to first 5 for others)
     node.each(function(d) {
       const nodeGroup = d3.select(this)
       const fields = d.fields || []
-      const displayFields = fields.slice(0, 5)
+      const isFocused = focusedNodeId.value === d.id
+      
+      // Show all fields for focused node, otherwise limit to 5
+      const displayFields = isFocused ? fields : fields.slice(0, 5)
       const directiveOffset = d.directives && d.directives.length > 0 ? 20 : 0
       
       displayFields.forEach((field, i) => {
@@ -386,7 +438,8 @@ const renderGraph = (data: GraphData) => {
           .text(field)
       })
       
-      if (fields.length > 5) {
+      // Only show "... more" for non-focused nodes
+      if (!isFocused && fields.length > 5) {
         nodeGroup.append('text')
           .attr('x', 15)
           .attr('y', 40 + directiveOffset + 5 * 20)
@@ -456,13 +509,69 @@ const renderGraph = (data: GraphData) => {
         // Adjust forces for better layout
         simulation
           .force('charge', d3.forceManyBody().strength(-1000))
-          .force('link', d3.forceLink(data.links as any)
+          .force('link', d3.forceLink(filteredData.links as any)
             .id((d: any) => d.id)
             .distance(250))
           .force('collision', d3.forceCollide().radius(120))
           .alpha(0.5)
           .restart()
       })
+      
+    // Add focus mode controls if a node is focused
+    if (focusedNodeId.value) {
+      // Add a divider
+      searchContainer.append('div')
+        .attr('class', 'border-t my-2')
+      
+      // Add a label for focus mode
+      searchContainer.append('div')
+        .attr('class', 'text-xs font-medium mb-1 text-blue-800')
+        .text(`Focus Mode: ${data.nodes.find(n => n.id === focusedNodeId.value)?.name}`)
+      
+      // Add depth control
+      const depthControl = searchContainer.append('div')
+        .attr('class', 'flex items-center')
+      
+      depthControl.append('span')
+        .attr('class', 'text-xs mr-2')
+        .text('Depth:')
+      
+      // Decrease depth button
+      depthControl.append('button')
+        .attr('class', 'bg-gray-200 px-2 py-0.5 rounded text-sm')
+        .text('-')
+        .attr('disabled', maxDepth.value <= 1 ? true : null)
+        .style('opacity', maxDepth.value <= 1 ? 0.5 : 1)
+        .on('click', () => {
+          if (maxDepth.value > 1) {
+            maxDepth.value--
+            renderGraph(data)
+          }
+        })
+      
+      // Current depth
+      depthControl.append('span')
+        .attr('class', 'mx-2 text-sm')
+        .text(maxDepth.value)
+      
+      // Increase depth button
+      depthControl.append('button')
+        .attr('class', 'bg-gray-200 px-2 py-0.5 rounded text-sm')
+        .text('+')
+        .on('click', () => {
+          maxDepth.value++
+          renderGraph(data)
+        })
+      
+      // Exit focus mode button
+      searchContainer.append('button')
+        .attr('class', 'mt-2 w-full bg-blue-50 border border-blue-200 px-2 py-1 rounded text-sm text-blue-800')
+        .text('Exit Focus Mode')
+        .on('click', () => {
+          focusedNodeId.value = null
+          renderGraph(data)
+        })
+    }
     
     // Update positions on simulation tick
     simulation.on('tick', () => {
@@ -564,6 +673,64 @@ const getNodeStrokeColor = (kind: string) => {
       return '#2f54eb'
     default:
       return '#d9d9d9'
+  }
+}
+
+// Calculate node distances from a focused node
+const calculateNodeDistances = (data: GraphData, focusedId: string): Map<string, number> => {
+  const distances = new Map<string, number>()
+  
+  // Initialize all distances to Infinity
+  data.nodes.forEach(node => {
+    distances.set(node.id, Infinity)
+  })
+  
+  // Set the focused node distance to 0
+  distances.set(focusedId, 0)
+  
+  // Create an adjacency list from the links
+  const adjacencyList = new Map<string, string[]>()
+  data.nodes.forEach(node => {
+    adjacencyList.set(node.id, [])
+  })
+  
+  data.links.forEach(link => {
+    const sourceId = typeof link.source === 'string' ? link.source : link.source.id
+    const targetId = typeof link.target === 'string' ? link.target : link.target.id
+    
+    // Add both directions for undirected graph
+    adjacencyList.get(sourceId)?.push(targetId)
+    adjacencyList.get(targetId)?.push(sourceId)
+  })
+  
+  // Breadth-first search to find shortest paths
+  const queue: string[] = [focusedId]
+  const visited = new Set<string>([focusedId])
+  
+  while (queue.length > 0) {
+    const current = queue.shift()!
+    const currentDistance = distances.get(current)!
+    
+    adjacencyList.get(current)?.forEach(neighbor => {
+      if (!visited.has(neighbor)) {
+        visited.add(neighbor)
+        distances.set(neighbor, currentDistance + 1)
+        queue.push(neighbor)
+      }
+    })
+  }
+  
+  return distances
+}
+
+// Toggle focus on a node
+const toggleFocusNode = (nodeId: string, data: GraphData) => {
+  if (focusedNodeId.value === nodeId) {
+    // If clicking the already focused node, clear focus
+    focusedNodeId.value = null
+  } else {
+    // Otherwise, set focus to the clicked node
+    focusedNodeId.value = nodeId
   }
 }
 
