@@ -277,31 +277,42 @@ const renderGraph = (data: GraphData) => {
       .attr('stroke-opacity', 0.4)
       .attr('stroke-width', 1)
     
-    // Create link labels with improved positioning and visibility
-    const linkLabels = g.append('g')
-      .selectAll('text')
+    // We'll create link labels as part of the link label groups below
+    
+    // Add white background to link labels for better readability
+    // First, create a group for each link label to properly handle the background
+    const linkLabelGroups = g.append('g')
+      .selectAll('g')
       .data(data.links)
-      .join('text')
+      .join('g')
+      .attr('class', 'link-label-group')
+    
+    // Add background rectangles to each group
+    linkLabelGroups.append('rect')
+      .attr('fill', 'white')
+      .attr('fill-opacity', 0.8)
+      .attr('rx', 2)
+    
+    // Add text to each group
+    const linkLabelTexts = linkLabelGroups.append('text')
       .attr('font-size', 9)
       .attr('fill', '#666')
       .attr('text-anchor', 'middle')
       .attr('dy', -5)
-      .attr('background', 'white')
       .text(d => d.relationship)
     
-    // Add white background to link labels for better readability
-    linkLabels.each(function() {
-      const textElement = d3.select(this)
-      const textBBox = (this as SVGTextElement).getBBox()
-      
-      g.insert('rect', 'text')
-        .attr('x', textBBox.x - 2)
-        .attr('y', textBBox.y - 2)
-        .attr('width', textBBox.width + 4)
-        .attr('height', textBBox.height + 4)
-        .attr('fill', 'white')
-        .attr('fill-opacity', 0.8)
-        .attr('rx', 2)
+    // Size the rectangles based on the text dimensions
+    linkLabelGroups.each(function() {
+      const group = d3.select(this)
+      const textElement = group.select('text').node() as SVGTextElement
+      if (textElement) {
+        const textBBox = textElement.getBBox()
+        group.select('rect')
+          .attr('x', textBBox.x - 2)
+          .attr('y', textBBox.y - 2)
+          .attr('width', textBBox.width + 4)
+          .attr('height', textBBox.height + 4)
+      }
     })
     
     // Create nodes with improved styling
@@ -411,8 +422,8 @@ const renderGraph = (data: GraphData) => {
           return sourceMatches || targetMatches ? 0.8 : 0.1
         })
         
-        // Filter link labels
-        linkLabels.style('opacity', d => {
+        // Filter link label groups
+        linkLabelGroups.style('opacity', d => {
           if (!searchTerm) return 1
           const sourceMatches = (d.source as any).name.toLowerCase().includes(searchTerm)
           const targetMatches = (d.target as any).name.toLowerCase().includes(searchTerm)
@@ -431,7 +442,7 @@ const renderGraph = (data: GraphData) => {
         // Reset node and link opacity
         node.style('opacity', 1)
         link.style('opacity', 0.4)
-        linkLabels.style('opacity', 1)
+        linkLabelGroups.style('opacity', 1)
         
         // Reset simulation
         simulation.alpha(0.3).restart()
@@ -461,9 +472,13 @@ const renderGraph = (data: GraphData) => {
         .attr('x2', (d: any) => d.target.x)
         .attr('y2', (d: any) => d.target.y)
       
-      linkLabels
-        .attr('x', (d: any) => (d.source.x + d.target.x) / 2)
-        .attr('y', (d: any) => (d.source.y + d.target.y) / 2)
+      // Update the position of the link label groups
+      linkLabelGroups
+        .attr('transform', (d: any) => {
+          const midX = (d.source.x + d.target.x) / 2
+          const midY = (d.source.y + d.target.y) / 2
+          return `translate(${midX}, ${midY})`
+        })
       
       node.attr('transform', (d: any) => `translate(${d.x - 60}, ${d.y - 25})`)
     })
@@ -637,4 +652,3 @@ onMounted(() => {
   box-shadow: 0 2px 4px rgba(0, 0, 0, 0.1);
 }
 </style>
-
