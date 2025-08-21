@@ -320,14 +320,16 @@ onMounted(() => {
     
     <div v-else class="flex-1 border rounded-md overflow-hidden">
       <!-- Vue CodeMirror editor with GraphQL syntax highlighting -->
-      <Codemirror
-        v-model="schema"
-        :extensions="extensions"
-        :indent-with-tab="true"
-        :tab-size="2"
-        class="w-full h-full"
-      />
+      <div class="w-full h-full overflow-auto">
+        <Codemirror
+          v-model="schema"
+          :extensions="extensions"
+          :indent-with-tab="true"
+          :tab-size="2"
+          class="w-full h-full"
+          style="height: 100%; overflow: auto;"
+        />
+      </div>
     </div>
   </div>
 </template>
-
