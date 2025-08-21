@@ -17,7 +17,7 @@ const error = ref<string | null>(null)
 const schemaText = ref<string>('')
 const containerRef = ref<HTMLDivElement | null>(null)
 const focusedNodeId = ref<string | null>(null)
-const maxDepth = ref(2) // Maximum depth for relationships when in focus mode
+const maxDepth = ref(1) // Maximum depth for relationships when in focus mode
 
 // Graph data structure
 type GraphNode = {
