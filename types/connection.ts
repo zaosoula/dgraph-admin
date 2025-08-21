@@ -1,11 +1,20 @@
 export type ConnectionType = 'http' | 'grpc'
 
-export type ConnectionCredentials = {
+export type AuthMethod = 'none' | 'basic' | 'token' | 'api-key' | 'auth-token'
+
+export type AuthCredentials = {
+  method: AuthMethod
   username?: string
   password?: string
   apiKey?: string
   token?: string
   authToken?: string
+}
+
+export type ConnectionCredentials = {
+  graphql: AuthCredentials
+  admin: AuthCredentials
+  useUnifiedAuth?: boolean
 }
 
 export type Connection = {
