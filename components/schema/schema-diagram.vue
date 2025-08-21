@@ -390,11 +390,16 @@ const renderGraph = (data: GraphData) => {
         .id((d: any) => d.id)
         .distance(200)) // Increased distance between nodes
       .force('charge', d3.forceManyBody()
-        .strength(-800)) // Stronger repulsion
+        .strength(focusedNodeId.value ? -800 : -1200)) // Stronger repulsion when not in focus mode
       .force('center', d3.forceCenter(width / 2, height / 2))
       .force('collision', d3.forceCollide().radius(100)) // Larger collision radius
       .force('x', d3.forceX(width / 2).strength(0.05)) // Gentle force toward center x
       .force('y', d3.forceY(height / 2).strength(0.05)) // Gentle force toward center y
+      
+    // Set a higher alpha (simulation energy) when not in focus mode to ensure better distribution
+    if (!focusedNodeId.value) {
+      simulation.alpha(0.8).alphaDecay(0.01) // Slower decay for more iterations
+    }
     
     // Create links with improved styling
     const link = g.append('g')
@@ -833,6 +838,19 @@ const renderGraph = (data: GraphData) => {
         .text('Exit Focus Mode')
         .on('click', () => {
           focusedNodeId.value = null
+          
+          // Reset node positions before re-rendering to prevent clustering
+          data.nodes.forEach((node: any) => {
+            // Clear any fixed positions
+            if (node.fx !== undefined) node.fx = null
+            if (node.fy !== undefined) node.fy = null
+            
+            // Assign random initial positions across the viewport
+            node.x = Math.random() * width
+            node.y = Math.random() * height
+          })
+          
+          // Re-render with the original data
           renderGraph(data)
         })
     }
@@ -946,7 +964,9 @@ const renderGraph = (data: GraphData) => {
     svg.call((zoom as any).transform, initialTransform)
     
     // Run simulation for a bit to get a better initial layout
-    for (let i = 0; i < 100; ++i) simulation.tick()
+    // Run more iterations when not in focus mode to ensure better distribution
+    const iterations = focusedNodeId.value ? 100 : 300
+    for (let i = 0; i < iterations; ++i) simulation.tick()
   } catch (err) {
     error.value = `Error rendering graph: ${err instanceof Error ? err.message : String(err)}`
     console.error('Graph rendering error:', err)
