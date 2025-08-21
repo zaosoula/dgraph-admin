@@ -242,24 +242,36 @@ const renderGraph = (data: GraphData) => {
     if (focusedNodeId.value) {
       nodeDistances = calculateNodeDistances(data, focusedNodeId.value)
       
-      // Filter nodes based on distance from focused node
-      const filteredNodes = data.nodes.filter(node => {
-        const distance = nodeDistances.get(node.id) || Infinity
-        return distance <= maxDepth.value
-      })
-      
-      // Filter links based on the filtered nodes
-      const filteredLinks = data.links.filter(link => {
-        const sourceId = typeof link.source === 'string' ? link.source : link.source.id
-        const targetId = typeof link.target === 'string' ? link.target : link.target.id
+      // First, ensure the focused node is included
+      const focusedNode = data.nodes.find(node => node.id === focusedNodeId.value)
+      if (!focusedNode) {
+        console.error('Focused node not found in original data:', focusedNodeId.value)
+        // If the focused node doesn't exist in the original data, clear the focus
+        focusedNodeId.value = null
+      } else {
+        // Filter nodes based on distance from focused node
+        const filteredNodes = data.nodes.filter(node => {
+          // Always include the focused node
+          if (node.id === focusedNodeId.value) return true
+          
+          // Include nodes within the specified depth
+          const distance = nodeDistances.get(node.id) || Infinity
+          return distance <= maxDepth.value
+        })
         
-        return filteredNodes.some(n => n.id === sourceId) && 
-               filteredNodes.some(n => n.id === targetId)
-      })
-      
-      filteredData = {
-        nodes: filteredNodes,
-        links: filteredLinks
+        // Filter links based on the filtered nodes
+        const filteredLinks = data.links.filter(link => {
+          const sourceId = typeof link.source === 'string' ? link.source : link.source.id
+          const targetId = typeof link.target === 'string' ? link.target : link.target.id
+          
+          return filteredNodes.some(n => n.id === sourceId) && 
+                 filteredNodes.some(n => n.id === targetId)
+        })
+        
+        filteredData = {
+          nodes: filteredNodes,
+          links: filteredLinks
+        }
       }
     }
     
@@ -578,14 +590,32 @@ const renderGraph = (data: GraphData) => {
       // If a node is focused, lock it to the center of the viewport
       if (focusedNodeId.value) {
         const focusedNode = filteredData.nodes.find(n => n.id === focusedNodeId.value)
-        if (focusedNode) {
+        
+        // If the focused node is not in the filtered data, something went wrong
+        // Let's log this for debugging
+        if (!focusedNode) {
+          console.error('Focused node not found in filtered data:', focusedNodeId.value)
+          console.log('Filtered nodes:', filteredData.nodes.map(n => n.id))
+          
+          // This is a critical error - the focused node should always be in the filtered data
+          // Let's fix it by adding the focused node from the original data
+          const originalFocusedNode = data.nodes.find(n => n.id === focusedNodeId.value)
+          if (originalFocusedNode) {
+            filteredData.nodes.push(originalFocusedNode)
+            console.log('Added focused node back to filtered data')
+          }
+        }
+        
+        // Try to find the focused node again (it should be there now)
+        const focusedNodeToCenter = filteredData.nodes.find(n => n.id === focusedNodeId.value)
+        if (focusedNodeToCenter) {
           // Set the focused node position to the center
           const centerX = width / 2
           const centerY = height / 2
           
           // Calculate the offset between current position and center
-          const dx = centerX - (focusedNode as any).x
-          const dy = centerY - (focusedNode as any).y
+          const dx = centerX - (focusedNodeToCenter as any).x
+          const dy = centerY - (focusedNodeToCenter as any).y
           
           // Apply the offset to all nodes to keep relative positions
           filteredData.nodes.forEach((n: any) => {
