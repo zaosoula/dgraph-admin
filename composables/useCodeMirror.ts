@@ -1,30 +1,33 @@
-import { ref, onMounted, watch, type Ref } from 'vue'
-import { EditorState, type Extension } from '@codemirror/state'
+import { ref, watch, onMounted, type Ref } from 'vue'
+import { Codemirror } from 'vue-codemirror'
+import { EditorState, Extension } from '@codemirror/state'
 import { EditorView, keymap, lineNumbers } from '@codemirror/view'
 import { defaultKeymap, history, historyKeymap } from '@codemirror/commands'
 import { indentOnInput, syntaxHighlighting, defaultHighlightStyle } from '@codemirror/language'
 import { graphql } from 'cm6-graphql'
 
 export function useCodeMirror(
-  element: Ref<HTMLElement | null>,
   initialValue: string = '',
   options: {
     readOnly?: boolean
     onChange?: (value: string) => void
+    schema?: any
   } = {}
 ) {
-  const { readOnly = false, onChange } = options
+  const { readOnly = false, onChange, schema } = options
   const value = ref(initialValue)
-  let view: EditorView | null = null
-
-  const createState = (doc: string) => {
+  const editorRef = ref<InstanceType<typeof Codemirror> | null>(null)
+  
+  // Create extensions array with GraphQL support
+  const createExtensions = () => {
     const extensions: Extension[] = [
       lineNumbers(),
       history(),
       indentOnInput(),
       keymap.of([...defaultKeymap, ...historyKeymap]),
       syntaxHighlighting(defaultHighlightStyle),
-      graphql(),
+      // Use schema if provided, otherwise just basic GraphQL syntax
+      schema ? graphql(schema) : graphql(),
       EditorView.updateListener.of(update => {
         if (update.docChanged) {
           const newValue = update.state.doc.toString()
@@ -38,25 +41,16 @@ export function useCodeMirror(
       extensions.push(EditorState.readOnly.of(true))
     }
 
-    return EditorState.create({
-      doc,
-      extensions
-    })
+    return extensions
   }
 
-  const initEditor = () => {
-    if (!element.value) return
-
-    view = new EditorView({
-      state: createState(value.value),
-      parent: element.value
-    })
-  }
-
+  // Update editor content
   const updateContent = (newContent: string) => {
-    if (!view) return
-
+    if (!editorRef.value?.view) return
+    
+    const view = editorRef.value.view
     const currentContent = view.state.doc.toString()
+    
     if (currentContent !== newContent) {
       view.dispatch({
         changes: { from: 0, to: currentContent.length, insert: newContent }
@@ -64,27 +58,30 @@ export function useCodeMirror(
     }
   }
 
-  onMounted(() => {
-    if (element.value) {
-      initEditor()
+  // Update schema
+  const updateSchema = (newSchema: any) => {
+    if (!editorRef.value?.view) return
+    
+    // Use the updateSchema function from cm6-graphql
+    if (typeof window !== 'undefined') {
+      const { updateSchema: updateGraphQLSchema } = require('cm6-graphql')
+      updateGraphQLSchema(editorRef.value.view, newSchema)
     }
-  })
+  }
 
-  watch(element, (newElement) => {
-    if (newElement && !view) {
-      initEditor()
-    }
-  })
-
+  // Watch for value changes
   watch(value, (newValue) => {
-    if (view && view.state.doc.toString() !== newValue) {
+    if (editorRef.value?.view && editorRef.value.view.state.doc.toString() !== newValue) {
       updateContent(newValue)
     }
   })
 
   return {
     value,
-    updateContent
+    editorRef,
+    extensions: createExtensions(),
+    updateContent,
+    updateSchema
   }
 }
 

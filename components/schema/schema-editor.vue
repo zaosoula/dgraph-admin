@@ -3,6 +3,7 @@ import { ref, onMounted, watch, computed } from 'vue'
 import { useConnectionsStore } from '@/stores/connections'
 import { useDgraphClient } from '@/composables/useDgraphClient'
 import { useCodeMirror } from '@/composables/useCodeMirror'
+import { Codemirror } from 'vue-codemirror'
 
 const props = defineProps<{
   initialSchema?: string
@@ -21,16 +22,15 @@ const schema = ref(props.initialSchema || '')
 const originalSchema = ref('') // Store the original schema from the server
 const isLoading = ref(false)
 const error = ref<string | null>(null)
-const editorElement = ref<HTMLElement | null>(null)
 const showDiff = ref(false)
 const showConfirmDialog = ref(false)
 
-// Initialize CodeMirror
-const { updateContent } = useCodeMirror(editorElement, schema.value, {
+// Initialize CodeMirror with vue-codemirror
+const { extensions, value, updateContent, updateSchema } = useCodeMirror(schema.value, {
   readOnly: props.readOnly,
-  onChange: (value) => {
-    schema.value = value
-    emit('update:schema', value)
+  onChange: (newValue) => {
+    schema.value = newValue
+    emit('update:schema', newValue)
   }
 })
 
@@ -120,7 +120,7 @@ const loadSchema = async () => {
     
     if (result.data) {
       schema.value = result.data.schema
-      updateContent(result.data.schema) // Update CodeMirror content
+      value.value = result.data.schema // Update CodeMirror content
       originalSchema.value = result.data.schema // Store the original schema
       emit('update:schema', schema.value)
     }
@@ -220,7 +220,7 @@ watch(() => connectionsStore.activeConnectionId, (newId) => {
 watch(() => props.initialSchema, (newSchema) => {
   if (newSchema !== undefined && newSchema !== schema.value) {
     schema.value = newSchema
-    updateContent(newSchema)
+    value.value = newSchema // Update CodeMirror content
   }
 })
 
@@ -319,11 +319,14 @@ onMounted(() => {
     </div>
     
     <div v-else class="flex-1 border rounded-md overflow-hidden">
-      <!-- CodeMirror editor with GraphQL syntax highlighting -->
-      <div 
-        ref="editorElement" 
+      <!-- Vue CodeMirror editor with GraphQL syntax highlighting -->
+      <Codemirror
+        v-model="schema"
+        :extensions="extensions"
+        :indent-with-tab="true"
+        :tab-size="2"
         class="w-full h-full"
-      ></div>
+      />
     </div>
   </div>
 </template>
