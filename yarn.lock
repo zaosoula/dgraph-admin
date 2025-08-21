@@ -340,7 +340,7 @@ __metadata:
   languageName: node
   linkType: hard
 
-"@codemirror/commands@npm:^6.0.0":
+"@codemirror/commands@npm:6.x, @codemirror/commands@npm:^6.0.0":
   version: 6.8.1
   resolution: "@codemirror/commands@npm:6.8.1"
   dependencies:
@@ -352,7 +352,7 @@ __metadata:
   languageName: node
   linkType: hard
 
-"@codemirror/language@npm:^6.0.0":
+"@codemirror/language@npm:6.x, @codemirror/language@npm:^6.0.0":
   version: 6.11.3
   resolution: "@codemirror/language@npm:6.11.3"
   dependencies:
@@ -388,7 +388,7 @@ __metadata:
   languageName: node
   linkType: hard
 
-"@codemirror/state@npm:^6.0.0, @codemirror/state@npm:^6.4.0, @codemirror/state@npm:^6.5.0":
+"@codemirror/state@npm:6.x, @codemirror/state@npm:^6.0.0, @codemirror/state@npm:^6.4.0, @codemirror/state@npm:^6.5.0":
   version: 6.5.2
   resolution: "@codemirror/state@npm:6.5.2"
   dependencies:
@@ -397,7 +397,7 @@ __metadata:
   languageName: node
   linkType: hard
 
-"@codemirror/view@npm:^6.0.0, @codemirror/view@npm:^6.17.0, @codemirror/view@npm:^6.23.0, @codemirror/view@npm:^6.27.0, @codemirror/view@npm:^6.35.0":
+"@codemirror/view@npm:6.x, @codemirror/view@npm:^6.0.0, @codemirror/view@npm:^6.17.0, @codemirror/view@npm:^6.23.0, @codemirror/view@npm:^6.27.0, @codemirror/view@npm:^6.35.0":
   version: 6.38.1
   resolution: "@codemirror/view@npm:6.38.1"
   dependencies:
@@ -4991,6 +4991,7 @@ __metadata:
     tailwindcss-animate: "npm:^1.0.7"
     typescript: "npm:^5.3.0"
     vue: "npm:^3.4.0"
+    vue-codemirror: "npm:^6.1.1"
     vue-router: "npm:^4.2.0"
     vue-tsc: "npm:^1.8.0"
   languageName: unknown
@@ -10871,6 +10872,21 @@ __metadata:
   dependencies:
     ufo: "npm:^1.6.1"
   checksum: 10c0/f8b4c21b43cf80a1375a940b6963e05e8d9b20132d654a33ca1f176c38671cd1f9ef20fa32f4e9c1600c2c9ab19d388cff23c1460c7a6af915f0e36945aef10c
+  languageName: node
+  linkType: hard
+
+"vue-codemirror@npm:^6.1.1":
+  version: 6.1.1
+  resolution: "vue-codemirror@npm:6.1.1"
+  dependencies:
+    "@codemirror/commands": "npm:6.x"
+    "@codemirror/language": "npm:6.x"
+    "@codemirror/state": "npm:6.x"
+    "@codemirror/view": "npm:6.x"
+  peerDependencies:
+    codemirror: 6.x
+    vue: 3.x
+  checksum: 10c0/3acbe671fb3ae2126b7f97d6fec3beb4b058b067aa62f6745f89418c010ccbb547672e106412e871ee7fa356a60734e5d719e608ef685b064c0541b5c4f9f855
   languageName: node
   linkType: hard
 
