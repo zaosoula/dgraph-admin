@@ -23,7 +23,8 @@
     "pinia": "^2.1.7",
     "radix-vue": "^1.2.5",
     "tailwind-merge": "^2.1.0",
-    "tailwindcss-animate": "^1.0.7"
+    "tailwindcss-animate": "^1.0.7",
+    "vue-codemirror": "^6.1.1"
   },
   "devDependencies": {
     "@nuxt/devtools": "latest",
