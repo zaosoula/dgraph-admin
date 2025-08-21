@@ -1,6 +1,6 @@
 import { useConnectionsStore } from '@/stores/connections'
 import { useCredentialStorage } from '@/composables/useCredentialStorage'
-import type { Connection, ConnectionCredentials } from '@/types/connection'
+import type { Connection, ConnectionCredentials, AuthMethod, AuthCredentials } from '@/types/connection'
 
 export type ConnectionExport = {
   version: string
@@ -88,6 +88,54 @@ export const useConnectionExportImport = () => {
           // Check if connection with same ID already exists
           const existingIndex = connectionsStore.connections.findIndex(conn => conn.id === connection.id)
           
+          // Handle legacy credential format if needed
+          let credentials = connection.credentials
+          
+          // Check if the credentials are in the old format (pre-separate auth)
+          if (!credentials.graphql && !credentials.admin) {
+            // Convert old format to new format
+            const oldCredentials = credentials as unknown as {
+              username?: string
+              password?: string
+              apiKey?: string
+              token?: string
+              authToken?: string
+            }
+            
+            // Determine the auth method based on which credential is present
+            let method: AuthMethod = 'none'
+            if (oldCredentials.username && oldCredentials.password) {
+              method = 'basic'
+            } else if (oldCredentials.token) {
+              method = 'token'
+            } else if (oldCredentials.apiKey) {
+              method = 'api-key'
+            } else if (oldCredentials.authToken) {
+              method = 'auth-token'
+            }
+            
+            // Create new credentials structure
+            credentials = {
+              graphql: {
+                method,
+                username: oldCredentials.username || '',
+                password: oldCredentials.password || '',
+                apiKey: oldCredentials.apiKey || '',
+                token: oldCredentials.token || '',
+                authToken: oldCredentials.authToken || ''
+              },
+              admin: {
+                method,
+                username: oldCredentials.username || '',
+                password: oldCredentials.password || '',
+                apiKey: oldCredentials.apiKey || '',
+                token: oldCredentials.token || '',
+                authToken: oldCredentials.authToken || ''
+              },
+              useUnifiedAuth: true
+            }
+          }
+          
           if (existingIndex >= 0) {
             // Update existing connection
             connectionsStore.updateConnection(connection.id, {
@@ -97,18 +145,22 @@ export const useConnectionExportImport = () => {
               isSecure: connection.isSecure
             })
           } else {
-            // Add new connection
+            // Add new connection with potentially converted credentials
             const newId = connectionsStore.addConnection({
               name: connection.name,
               type: connection.type,
               url: connection.url,
-              credentials: connection.credentials,
+              credentials: { 
+                graphql: { method: 'none' },
+                admin: { method: 'none' },
+                useUnifiedAuth: credentials.useUnifiedAuth ?? true
+              },
               isSecure: connection.isSecure
             })
             
             // Save credentials if secure
             if (connection.isSecure) {
-              credentialStorage.saveCredentials(newId, connection.credentials)
+              credentialStorage.saveCredentials(newId, credentials)
             }
           }
           
@@ -207,7 +259,7 @@ export const useConnectionExportImport = () => {
     const connection = data as Partial<Connection>
     
     // Check required fields
-    return !!(
+    const hasRequiredFields = !!(
       connection.id &&
       connection.name &&
       connection.type &&
@@ -217,6 +269,25 @@ export const useConnectionExportImport = () => {
       connection.updatedAt &&
       connection.credentials
     )
+    
+    if (!hasRequiredFields) return false
+    
+    // For backward compatibility, we accept both old and new credential formats
+    const credentials = connection.credentials as any
+    
+    // New format: should have graphql and admin properties
+    const isNewFormat = !!(credentials.graphql && credentials.admin)
+    
+    // Old format: should have at least one of these properties
+    const isOldFormat = !!(
+      'username' in credentials ||
+      'password' in credentials ||
+      'apiKey' in credentials ||
+      'token' in credentials ||
+      'authToken' in credentials
+    )
+    
+    return isNewFormat || isOldFormat
   }
 
   return {
