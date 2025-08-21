@@ -372,8 +372,47 @@ const renderGraph = (data: GraphData, wasInFocusMode = false) => {
       .on('click', () => {
         // Clear focus when clicking on the background
         if (focusedNodeId.value) {
+          console.log('Background click: Exiting focus mode with radical solution')
+          
+          // Clear focus node ID
           focusedNodeId.value = null
-          renderGraph(data)
+          
+          // Stop the current simulation completely
+          if (simulation) {
+            simulation.stop()
+          }
+          
+          // Create a completely fresh copy of the data to break any references
+          const freshData = {
+            nodes: JSON.parse(JSON.stringify(data.nodes)).map((node: any) => {
+              // Create completely fresh node objects with no position data
+              return {
+                ...node,
+                x: undefined,
+                y: undefined,
+                vx: undefined,
+                vy: undefined,
+                fx: undefined,
+                fy: undefined,
+                index: undefined
+              }
+            }),
+            links: JSON.parse(JSON.stringify(data.links))
+          }
+          
+          // Force a complete DOM cleanup and re-render with fresh data
+          setTimeout(() => {
+            // Clear the container completely
+            if (containerRef.value) {
+              d3.select(containerRef.value).selectAll('*').remove()
+              
+              // Force a small delay before re-rendering to ensure complete cleanup
+              setTimeout(() => {
+                // Render with completely fresh data and special flag
+                renderGraph(freshData, true)
+              }, 100)
+            }
+          }, 50)
         }
       })
     
@@ -393,29 +432,76 @@ const renderGraph = (data: GraphData, wasInFocusMode = false) => {
     const needsStrongForces = wasInFocusMode || !focusedNodeId.value
     
     // Configure force parameters based on mode
-    const chargeStrength = needsStrongForces ? -2000 : -800
-    const linkDistance = needsStrongForces ? 250 : 200
-    const collisionRadius = needsStrongForces ? 120 : 100
-    const centerStrength = needsStrongForces ? 0.2 : 0.1
+    const chargeStrength = wasInFocusMode ? -3000 : (focusedNodeId.value ? -800 : -2000)
+    const linkDistance = wasInFocusMode ? 300 : (focusedNodeId.value ? 200 : 250)
+    const collisionRadius = wasInFocusMode ? 150 : (focusedNodeId.value ? 100 : 120)
+    const centerStrength = wasInFocusMode ? 0.3 : (focusedNodeId.value ? 0.1 : 0.2)
     
-    // Improved force simulation with better parameters
-    const simulation = d3.forceSimulation(filteredData.nodes as any)
-      .force('link', d3.forceLink(filteredData.links as any)
+    // If we're exiting focus mode, initialize nodes in a circle layout
+    if (wasInFocusMode) {
+      console.log('Initializing nodes in a circle layout')
+      const radius = Math.min(width, height) * 0.4
+      filteredData.nodes.forEach((node: any, i: number) => {
+        // Distribute nodes evenly in a circle
+        const angle = (i / filteredData.nodes.length) * 2 * Math.PI
+        node.x = width/2 + radius * Math.cos(angle)
+        node.y = height/2 + radius * Math.sin(angle)
+        
+        // Ensure no fixed positions
+        node.fx = null
+        node.fy = null
+        node.vx = null
+        node.vy = null
+      })
+    }
+    
+    console.log(`Creating new simulation with ${filteredData.nodes.length} nodes and ${filteredData.links.length} links`)
+    
+    // Create a completely new simulation with fresh force objects
+    const simulation = d3.forceSimulation()
+      // Set nodes after initializing the simulation
+      .nodes(filteredData.nodes as any)
+      // Add forces one by one
+      .force('link', d3.forceLink()
         .id((d: any) => d.id)
-        .distance(linkDistance)) 
+        .links(filteredData.links as any)
+        .distance(linkDistance))
       .force('charge', d3.forceManyBody()
-        .strength(chargeStrength)) 
+        .strength(chargeStrength)
+        .distanceMin(10)
+        .distanceMax(1000))
       .force('center', d3.forceCenter(width / 2, height / 2))
       .force('collision', d3.forceCollide().radius(collisionRadius))
       .force('x', d3.forceX(width / 2).strength(centerStrength))
       .force('y', d3.forceY(height / 2).strength(centerStrength))
-      
+    
     // Set simulation energy parameters
-    if (needsStrongForces) {
-      // When exiting focus mode or in full graph view, use higher energy and slower decay
-      simulation.alpha(1.0).alphaDecay(0.005).alphaMin(0.001)
+    if (wasInFocusMode) {
+      // When exiting focus mode, use maximum energy and very slow decay
+      simulation
+        .alpha(1.0)
+        .alphaDecay(0.001) // Very slow decay
+        .alphaMin(0.0001)  // Run for longer
+        .alphaTarget(0)    // Ensure it eventually stops
+        .velocityDecay(0.1) // Lower velocity decay for more movement
       
-      // Log the simulation parameters for debugging
+      console.log('Using MAXIMUM force configuration for exiting focus mode:', {
+        chargeStrength,
+        linkDistance,
+        collisionRadius,
+        centerStrength,
+        alpha: 1.0,
+        alphaDecay: 0.001,
+        alphaMin: 0.0001,
+        velocityDecay: 0.1
+      })
+    } else if (needsStrongForces) {
+      // For regular full view (not exiting focus)
+      simulation
+        .alpha(1.0)
+        .alphaDecay(0.005)
+        .alphaMin(0.001)
+      
       console.log('Using strong force configuration:', {
         chargeStrength,
         linkDistance,
@@ -783,44 +869,51 @@ const renderGraph = (data: GraphData, wasInFocusMode = false) => {
       .attr('class', 'ml-2 bg-gray-200 px-2 py-1 rounded text-sm')
       .text('Reset')
       .on('click', () => {
+        console.log('Reset button: Implementing radical solution')
+        
         // Reset search input
         searchContainer.select('input').property('value', '')
         
-        // Reset node and link opacity
-        node.style('opacity', 1)
-        link.style('opacity', 0.4)
-        linkLabelGroups.style('opacity', 1)
+        // Stop the current simulation completely
+        if (simulation) {
+          simulation.stop()
+        }
         
-        // Completely reset all node positions and velocities
-        filteredData.nodes.forEach((node: any) => {
-          // Clear all position and velocity properties
-          node.fx = null
-          node.fy = null
-          node.vx = null
-          node.vy = null
-          
-          // Assign positions in a circle layout
-          const radius = Math.min(width, height) * 0.4
-          const angle = Math.random() * 2 * Math.PI
-          node.x = width/2 + radius * Math.cos(angle)
-          node.y = height/2 + radius * Math.sin(angle)
-        })
+        // Create a completely fresh copy of the data to break any references
+        const freshData = {
+          nodes: JSON.parse(JSON.stringify(filteredData.nodes)).map((node: any) => {
+            // Create completely fresh node objects with no position data
+            return {
+              ...node,
+              x: undefined,
+              y: undefined,
+              vx: undefined,
+              vy: undefined,
+              fx: undefined,
+              fy: undefined,
+              index: undefined
+            }
+          }),
+          links: JSON.parse(JSON.stringify(filteredData.links))
+        }
         
-        // Reset simulation with high energy
-        simulation
-          .alpha(1.0)
-          .alphaDecay(0.005)
-          .alphaMin(0.001)
-          .force('charge', d3.forceManyBody().strength(-2000))
-          .force('link', d3.forceLink(filteredData.links as any)
-            .id((d: any) => d.id)
-            .distance(250))
-          .force('collision', d3.forceCollide().radius(120))
-          .force('x', d3.forceX(width / 2).strength(0.2))
-          .force('y', d3.forceY(height / 2).strength(0.2))
-          .restart()
+        console.log('Created fresh data with no position information')
         
-        console.log('Reset button: Completely reset node positions and simulation parameters')
+        // Force a complete DOM cleanup and re-render with fresh data
+        setTimeout(() => {
+          // Clear the container completely
+          if (containerRef.value) {
+            d3.select(containerRef.value).selectAll('*').remove()
+            console.log('Cleared all DOM elements')
+            
+            // Force a small delay before re-rendering to ensure complete cleanup
+            setTimeout(() => {
+              console.log('Re-rendering with fresh data')
+              // Render with completely fresh data and special flag for strong forces
+              renderGraph(freshData, true)
+            }, 100)
+          }
+        }, 50)
       })
     
     // Add a layout button
@@ -890,37 +983,50 @@ const renderGraph = (data: GraphData, wasInFocusMode = false) => {
         .attr('class', 'mt-2 w-full bg-blue-50 border border-blue-200 px-2 py-1 rounded text-sm text-blue-800')
         .text('Exit Focus Mode')
         .on('click', () => {
-          // Set flag to indicate we're exiting focus mode (will be used in renderGraph)
-          const wasInFocusMode = true
+          console.log('Exit focus mode: Implementing radical solution')
           
           // Clear focus node ID
           focusedNodeId.value = null
           
-          // Completely reset all node positions and velocities
-          data.nodes.forEach((node: any) => {
-            // Clear all position and velocity properties
-            node.fx = null
-            node.fy = null
-            node.vx = null
-            node.vy = null
-            
-            // Assign random initial positions in a circle layout
-            const radius = Math.min(width, height) * 0.4
-            const angle = Math.random() * 2 * Math.PI
-            node.x = width/2 + radius * Math.cos(angle)
-            node.y = height/2 + radius * Math.sin(angle)
-          })
+          // Stop the current simulation completely
+          if (simulation) {
+            simulation.stop()
+          }
           
-          // Force a complete re-render with the original data
-          // We'll use setTimeout to ensure the DOM is updated before re-rendering
+          // Create a completely fresh copy of the data to break any references
+          const freshData = {
+            nodes: JSON.parse(JSON.stringify(data.nodes)).map((node: any) => {
+              // Create completely fresh node objects with no position data
+              return {
+                ...node,
+                x: undefined,
+                y: undefined,
+                vx: undefined,
+                vy: undefined,
+                fx: undefined,
+                fy: undefined,
+                index: undefined
+              }
+            }),
+            links: JSON.parse(JSON.stringify(data.links))
+          }
+          
+          console.log('Created fresh data with no position information')
+          
+          // Force a complete DOM cleanup and re-render with fresh data
           setTimeout(() => {
-            // Clear the container first
+            // Clear the container completely
             if (containerRef.value) {
               d3.select(containerRef.value).selectAll('*').remove()
+              console.log('Cleared all DOM elements')
+              
+              // Force a small delay before re-rendering to ensure complete cleanup
+              setTimeout(() => {
+                console.log('Re-rendering with fresh data')
+                // Render with completely fresh data and special flag
+                renderGraph(freshData, true)
+              }, 100)
             }
-            
-            // Then re-render with the original data
-            renderGraph(data, wasInFocusMode)
           }, 50)
         })
     }
@@ -1035,40 +1141,94 @@ const renderGraph = (data: GraphData, wasInFocusMode = false) => {
     
     // Run simulation for a bit to get a better initial layout
     // Run more iterations when exiting focus mode or in full graph view
-    const iterations = wasInFocusMode ? 500 : (focusedNodeId.value ? 100 : 300)
+    const iterations = wasInFocusMode ? 1000 : (focusedNodeId.value ? 100 : 300)
     
     console.log(`Running ${iterations} simulation iterations for initial layout`)
     
-    // Run the simulation iterations
-    for (let i = 0; i < iterations; ++i) {
-      simulation.tick()
+    // For exiting focus mode, use a more aggressive approach with multiple phases
+    if (wasInFocusMode) {
+      console.log('Using multi-phase simulation for exiting focus mode')
       
-      // If exiting focus mode, periodically check for node clustering and adjust if needed
-      if (wasInFocusMode && i % 100 === 0 && i > 0) {
-        // Check for clustering by measuring the average distance between nodes
-        let totalDistance = 0
-        let pairCount = 0
+      // Phase 1: Initial spread with very strong repulsion
+      console.log('Phase 1: Initial spread with very strong repulsion')
+      simulation.force('charge').strength(-5000)
+      for (let i = 0; i < 200; ++i) simulation.tick()
+      
+      // Phase 2: Reduce repulsion and let links pull related nodes together
+      console.log('Phase 2: Reduce repulsion and let links pull related nodes together')
+      simulation.force('charge').strength(-3000)
+      simulation.force('link').distance(250)
+      for (let i = 0; i < 300; ++i) simulation.tick()
+      
+      // Phase 3: Fine-tune with more balanced forces
+      console.log('Phase 3: Fine-tune with more balanced forces')
+      simulation.force('charge').strength(-2000)
+      simulation.force('link').distance(200)
+      for (let i = 0; i < 500; ++i) {
+        simulation.tick()
         
-        for (let j = 0; j < filteredData.nodes.length; j++) {
-          for (let k = j + 1; k < filteredData.nodes.length; k++) {
-            const node1 = filteredData.nodes[j] as any
-            const node2 = filteredData.nodes[k] as any
-            const dx = node1.x - node2.x
-            const dy = node1.y - node2.y
-            const distance = Math.sqrt(dx * dx + dy * dy)
-            totalDistance += distance
-            pairCount++
+        // Every 100 iterations, check for clustering
+        if (i % 100 === 0) {
+          // Check for clustering by measuring the average distance between nodes
+          let totalDistance = 0
+          let pairCount = 0
+          
+          for (let j = 0; j < filteredData.nodes.length; j++) {
+            for (let k = j + 1; k < filteredData.nodes.length; k++) {
+              const node1 = filteredData.nodes[j] as any
+              const node2 = filteredData.nodes[k] as any
+              const dx = node1.x - node2.x
+              const dy = node1.y - node2.y
+              const distance = Math.sqrt(dx * dx + dy * dy)
+              totalDistance += distance
+              pairCount++
+            }
+          }
+          
+          const avgDistance = pairCount > 0 ? totalDistance / pairCount : 0
+          console.log(`Phase 3 - Iteration ${i}: Average node distance = ${avgDistance.toFixed(2)}`)
+          
+          // If nodes are too close together, increase repulsion
+          if (avgDistance < 100 && filteredData.nodes.length > 5) {
+            const newStrength = simulation.force('charge').strength() * 1.5
+            console.log(`Nodes too clustered, increasing repulsion to ${newStrength}`)
+            simulation.force('charge').strength(newStrength)
           }
         }
+      }
+      
+      console.log('Multi-phase simulation complete')
+    } else {
+      // Standard simulation for normal mode and focus mode
+      for (let i = 0; i < iterations; ++i) {
+        simulation.tick()
         
-        const avgDistance = pairCount > 0 ? totalDistance / pairCount : 0
-        console.log(`Iteration ${i}: Average node distance = ${avgDistance.toFixed(2)}`)
-        
-        // If nodes are too close together, increase repulsion
-        if (avgDistance < 100 && filteredData.nodes.length > 5) {
-          const newStrength = simulation.force('charge').strength() * 1.5
-          console.log(`Nodes too clustered, increasing repulsion to ${newStrength}`)
-          simulation.force('charge').strength(newStrength)
+        // If in full view (not focus mode), periodically check for clustering
+        if (!focusedNodeId.value && i % 100 === 0 && i > 0 && filteredData.nodes.length > 10) {
+          // Check for clustering by measuring the average distance between nodes
+          let totalDistance = 0
+          let pairCount = 0
+          
+          for (let j = 0; j < filteredData.nodes.length; j++) {
+            for (let k = j + 1; k < filteredData.nodes.length; k++) {
+              const node1 = filteredData.nodes[j] as any
+              const node2 = filteredData.nodes[k] as any
+              const dx = node1.x - node2.x
+              const dy = node1.y - node2.y
+              const distance = Math.sqrt(dx * dx + dy * dy)
+              totalDistance += distance
+              pairCount++
+            }
+          }
+          
+          const avgDistance = pairCount > 0 ? totalDistance / pairCount : 0
+          
+          // If nodes are too close together, increase repulsion
+          if (avgDistance < 100) {
+            const newStrength = simulation.force('charge').strength() * 1.5
+            console.log(`Nodes too clustered, increasing repulsion to ${newStrength}`)
+            simulation.force('charge').strength(newStrength)
+          }
         }
       }
     }
