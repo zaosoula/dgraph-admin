@@ -26,10 +26,21 @@ export const useConnectionExportImport = () => {
     const connection = connectionsStore.connections.find(conn => conn.id === connectionId)
     if (!connection) return false
 
+    // Create a deep copy of the connection to avoid modifying the original
+    const connectionCopy = JSON.parse(JSON.stringify(connection)) as Connection
+
+    // If the connection is secure, get the credentials from storage
+    if (connection.isSecure) {
+      const storedCredentials = credentialStorage.getCredentials(connection.id)
+      if (storedCredentials) {
+        connectionCopy.credentials = storedCredentials
+      }
+    }
+
     // Create export object
     const exportData: ConnectionExport = {
       version: '1.0',
-      connections: [connection],
+      connections: [connectionCopy],
       exportedAt: new Date().toISOString()
     }
 
@@ -44,10 +55,26 @@ export const useConnectionExportImport = () => {
   const exportAllConnections = (): boolean => {
     if (connectionsStore.connections.length === 0) return false
 
+    // Create deep copies of connections with their credentials
+    const connectionCopies = connectionsStore.connections.map(connection => {
+      // Create a deep copy of the connection
+      const connectionCopy = JSON.parse(JSON.stringify(connection)) as Connection
+      
+      // If the connection is secure, get the credentials from storage
+      if (connection.isSecure) {
+        const storedCredentials = credentialStorage.getCredentials(connection.id)
+        if (storedCredentials) {
+          connectionCopy.credentials = storedCredentials
+        }
+      }
+      
+      return connectionCopy
+    })
+
     // Create export object
     const exportData: ConnectionExport = {
       version: '1.0',
-      connections: connectionsStore.connections,
+      connections: connectionCopies,
       exportedAt: new Date().toISOString()
     }
 
