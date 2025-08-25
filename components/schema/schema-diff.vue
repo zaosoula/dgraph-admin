@@ -1,6 +1,9 @@
 <script setup lang="ts">
 import { ref, computed, onMounted } from 'vue'
 import * as diffLib from 'diff'
+import Prism from 'prismjs'
+import 'prismjs/components/prism-graphql'
+import 'prismjs/themes/prism.css'
 
 const props = defineProps<{
   originalSchema: string
@@ -49,7 +52,7 @@ const processedDiff = computed(() => {
           leftContent: null,
           rightContent: line,
           leftClass: '',
-          rightClass: 'bg-green-50 text-green-600'
+          rightClass: 'bg-green-50'
         })
       })
     } else if (part.removed) {
@@ -61,7 +64,7 @@ const processedDiff = computed(() => {
           rightLineNumber: null,
           leftContent: line,
           rightContent: null,
-          leftClass: 'bg-red-50 text-red-600',
+          leftClass: 'bg-red-50',
           rightClass: ''
         })
       })
@@ -148,10 +151,18 @@ const changeCount = computed(() => {
   }
 })
 
-// Helper function to highlight parts of a line
+// Apply syntax highlighting to a line
+const applySyntaxHighlighting = (code: string): string => {
+  return Prism.highlight(code, Prism.languages.graphql, 'graphql')
+}
+
+// Helper function to highlight parts of a line with both syntax highlighting and diff highlighting
 const highlightLine = (line: string, highlights?: Array<{ start: number; end: number; isRemoved?: boolean; isAdded?: boolean }>) => {
-  if (!highlights || highlights.length === 0 || !line) {
-    return line
+  if (!line) return ''
+  
+  // If no diff highlights, just apply syntax highlighting
+  if (!highlights || highlights.length === 0) {
+    return applySyntaxHighlighting(line)
   }
   
   // Sort highlights by start position
@@ -162,21 +173,43 @@ const highlightLine = (line: string, highlights?: Array<{ start: number; end: nu
   let lastEnd = 0
   
   for (const highlight of sortedHighlights) {
-    // Add the text before the highlight
-    result += line.substring(lastEnd, highlight.start)
+    // Add the text before the highlight with syntax highlighting
+    const beforeText = line.substring(lastEnd, highlight.start)
+    if (beforeText) {
+      result += applySyntaxHighlighting(beforeText)
+    }
     
-    // Add the highlighted text
+    // Add the highlighted text with both syntax and diff highlighting
+    const highlightedText = line.substring(highlight.start, highlight.end)
+    const syntaxHighlighted = applySyntaxHighlighting(highlightedText)
     const highlightClass = highlight.isRemoved ? 'bg-red-200' : highlight.isAdded ? 'bg-green-200' : ''
-    result += `<span class="${highlightClass}">${line.substring(highlight.start, highlight.end)}</span>`
+    
+    result += `<span class="${highlightClass}">${syntaxHighlighted}</span>`
     
     lastEnd = highlight.end
   }
   
-  // Add any remaining text
-  result += line.substring(lastEnd)
+  // Add any remaining text with syntax highlighting
+  const remainingText = line.substring(lastEnd)
+  if (remainingText) {
+    result += applySyntaxHighlighting(remainingText)
+  }
   
   return result
 }
+
+// Apply syntax highlighting to all lines
+const syntaxHighlightedDiff = computed(() => {
+  return processedDiff.value.map(line => {
+    return {
+      ...line,
+      leftContentHighlighted: line.leftContent !== null ? 
+        (line.leftHighlights ? highlightLine(line.leftContent, line.leftHighlights) : applySyntaxHighlighting(line.leftContent)) : null,
+      rightContentHighlighted: line.rightContent !== null ? 
+        (line.rightHighlights ? highlightLine(line.rightContent, line.rightHighlights) : applySyntaxHighlighting(line.rightContent)) : null
+    }
+  })
+})
 </script>
 
 <template>
@@ -198,21 +231,20 @@ const highlightLine = (line: string, highlights?: Array<{ start: number; end: nu
           <div class="flex">
             <!-- Line numbers -->
             <div class="w-10 text-right pr-2 text-gray-500 select-none border-r bg-gray-50">
-              <div v-for="line in processedDiff" :key="`left-${line.leftLineNumber || 'empty'}`" class="px-2">
+              <div v-for="line in syntaxHighlightedDiff" :key="`left-${line.leftLineNumber || 'empty'}`" class="px-2">
                 {{ line.leftLineNumber || ' ' }}
               </div>
             </div>
             <!-- Content -->
             <div class="flex-1 overflow-x-auto">
               <div 
-                v-for="line in processedDiff" 
+                v-for="line in syntaxHighlightedDiff" 
                 :key="`left-content-${line.leftLineNumber || 'empty'}`"
                 :class="line.leftClass"
                 class="px-2 whitespace-pre"
               >
                 <template v-if="line.leftContent !== null">
-                  <span v-if="line.leftHighlights" v-html="highlightLine(line.leftContent, line.leftHighlights)"></span>
-                  <span v-else>{{ line.leftContent }}</span>
+                  <span v-html="line.leftContentHighlighted"></span>
                 </template>
                 <span v-else>&nbsp;</span>
               </div>
@@ -225,21 +257,20 @@ const highlightLine = (line: string, highlights?: Array<{ start: number; end: nu
           <div class="flex">
             <!-- Line numbers -->
             <div class="w-10 text-right pr-2 text-gray-500 select-none border-r bg-gray-50">
-              <div v-for="line in processedDiff" :key="`right-${line.rightLineNumber || 'empty'}`" class="px-2">
+              <div v-for="line in syntaxHighlightedDiff" :key="`right-${line.rightLineNumber || 'empty'}`" class="px-2">
                 {{ line.rightLineNumber || ' ' }}
               </div>
             </div>
             <!-- Content -->
             <div class="flex-1 overflow-x-auto">
               <div 
-                v-for="line in processedDiff" 
+                v-for="line in syntaxHighlightedDiff" 
                 :key="`right-content-${line.rightLineNumber || 'empty'}`"
                 :class="line.rightClass"
                 class="px-2 whitespace-pre"
               >
                 <template v-if="line.rightContent !== null">
-                  <span v-if="line.rightHighlights" v-html="highlightLine(line.rightContent, line.rightHighlights)"></span>
-                  <span v-else>{{ line.rightContent }}</span>
+                  <span v-html="line.rightContentHighlighted"></span>
                 </template>
                 <span v-else>&nbsp;</span>
               </div>
@@ -250,3 +281,10 @@ const highlightLine = (line: string, highlights?: Array<{ start: number; end: nu
     </div>
   </div>
 </template>
+
+<style>
+/* Override Prism styles to ensure they work well with our diff highlighting */
+.token {
+  background: transparent !important;
+}
+</style>
