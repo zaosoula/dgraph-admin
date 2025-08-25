@@ -4,6 +4,10 @@ import { useConnectionsStore } from '@/stores/connections'
 import { useDgraphClient } from '@/composables/useDgraphClient'
 import { useCodeMirror } from '@/composables/useCodeMirror'
 import { Codemirror } from 'vue-codemirror'
+import { EditorView, basicSetup } from 'codemirror'
+import { EditorState } from '@codemirror/state'
+import { graphql } from 'cm6-graphql'
+import { diffConfig, MergeView } from '@codemirror/merge'
 
 const props = defineProps<{
   initialSchema?: string
@@ -34,40 +38,107 @@ const { extensions, value, updateContent, updateSchema } = useCodeMirror(schema.
   }
 })
 
-// Compute the diff between original and current schema
-const schemaDiff = computed(() => {
-  if (!originalSchema.value || !schema.value) return []
+// DOM refs for diff view
+const diffContainer = ref<HTMLElement | null>(null)
+let mergeView: MergeView | null = null
+
+// Count of changes
+const changeCount = computed(() => {
+  if (!originalSchema.value || !schema.value) return { additions: 0, deletions: 0, modifications: 0 }
   
-  // Simple line-by-line diff
-  const originalLines = originalSchema.value.split('\n')
-  const currentLines = schema.value.split('\n')
+  // This is a simplified count based on line differences
+  const originalLines = originalSchema.value.split('\n').length
+  const currentLines = schema.value.split('\n').length
   
-  const diff: Array<{ line: string; type: 'added' | 'removed' | 'unchanged' }> = []
+  return {
+    additions: Math.max(0, currentLines - originalLines),
+    deletions: Math.max(0, originalLines - currentLines),
+    modifications: 0 // This is harder to calculate without parsing the diff
+  }
+})
+
+// Create and configure the merge view
+const setupDiffView = () => {
+  if (!diffContainer.value || !originalSchema.value || !schema.value) return
   
-  // Find the maximum length
-  const maxLength = Math.max(originalLines.length, currentLines.length)
+  // Clear the container
+  diffContainer.value.innerHTML = ''
   
-  for (let i = 0; i < maxLength; i++) {
-    const originalLine = i < originalLines.length ? originalLines[i] : null
-    const currentLine = i < currentLines.length ? currentLines[i] : null
-    
-    if (originalLine === currentLine) {
-      // Line is unchanged
-      if (originalLine !== null) {
-        diff.push({ line: originalLine, type: 'unchanged' })
-      }
-    } else {
-      // Line is changed
-      if (originalLine !== null) {
-        diff.push({ line: originalLine, type: 'removed' })
-      }
-      if (currentLine !== null) {
-        diff.push({ line: currentLine, type: 'added' })
-      }
+  // Configure the merge view
+  const config = {
+    a: {
+      doc: originalSchema.value,
+      extensions: [
+        basicSetup,
+        graphql(),
+        EditorState.readOnly.of(true),
+        EditorView.theme({
+          "&": { height: "100%" },
+          ".cm-content": { fontFamily: "monospace" }
+        })
+      ]
+    },
+    b: {
+      doc: schema.value,
+      extensions: [
+        basicSetup,
+        graphql(),
+        EditorState.readOnly.of(true),
+        EditorView.theme({
+          "&": { height: "100%" },
+          ".cm-content": { fontFamily: "monospace" }
+        })
+      ]
+    },
+    parent: diffContainer.value,
+    revertControls: false,
+    highlightChanges: true,
+    collapseUnchanged: {
+      margin: 10,
+      minSize: 3
     }
   }
   
-  return diff
+  // Create the merge view
+  mergeView = new MergeView(diffConfig(config))
+}
+
+// Watch for changes in the schemas and update the merge view when in diff mode
+watch([() => originalSchema.value, () => schema.value, () => showDiff.value], () => {
+  if (showDiff.value && diffContainer.value) {
+    // Destroy the previous merge view if it exists
+    if (mergeView) {
+      mergeView.destroy()
+      mergeView = null
+    }
+    
+    // Create a new merge view with the updated schemas
+    setupDiffView()
+  }
+})
+
+// Set up the diff view when it becomes visible
+watch(() => showDiff.value, (newValue) => {
+  if (newValue) {
+    // Need to wait for the DOM to update
+    setTimeout(() => {
+      setupDiffView()
+    }, 0)
+  } else if (mergeView) {
+    // Clean up when switching away from diff view
+    mergeView.destroy()
+    mergeView = null
+  }
+})
+
+// Clean up when component is unmounted
+onMounted(() => {
+  return () => {
+    if (mergeView) {
+      mergeView.destroy()
+      mergeView = null
+    }
+  }
 })
 
 // Check if there are changes
@@ -299,23 +370,7 @@ onMounted(() => {
     
     <div v-else-if="showDiff" class="flex-1 border rounded-md overflow-auto">
       <!-- Diff view -->
-      <div class="font-mono text-sm p-4">
-        <div v-for="(line, index) in schemaDiff" :key="index" class="flex">
-          <div class="w-8 text-gray-500 select-none">{{ index + 1 }}</div>
-          <div 
-            class="flex-1" 
-            :class="{
-              'bg-red-100': line.type === 'removed',
-              'bg-green-100': line.type === 'added'
-            }"
-          >
-            <span v-if="line.type === 'removed'" class="text-red-700 select-none mr-1">-</span>
-            <span v-if="line.type === 'added'" class="text-green-700 select-none mr-1">+</span>
-            <span v-if="line.type === 'unchanged'" class="text-gray-500 select-none mr-1">&nbsp;</span>
-            {{ line.line }}
-          </div>
-        </div>
-      </div>
+      <div ref="diffContainer" class="h-full"></div>
     </div>
     
     <div v-else class="flex-1 border rounded-md overflow-hidden">
@@ -333,3 +388,38 @@ onMounted(() => {
     </div>
   </div>
 </template>
+
+<style>
+/* CodeMirror Merge Styles */
+.cm-merge {
+  height: 100%;
+}
+
+.cm-merge-gap {
+  background-color: #f9fafb;
+  border-left: 1px solid #e5e7eb;
+  border-right: 1px solid #e5e7eb;
+}
+
+.cm-merge-2pane .cm-merge-pane {
+  width: 50%;
+}
+
+.cm-merge-pane-original {
+  border-right: 1px solid #e5e7eb;
+}
+
+/* Diff highlighting */
+.cm-merge-deleted {
+  background-color: #fee2e2;
+}
+
+.cm-merge-inserted {
+  background-color: #dcfce7;
+}
+
+/* Make sure the editors take full height */
+.cm-editor {
+  height: 100%;
+}
+</style>
