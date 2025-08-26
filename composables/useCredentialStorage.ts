@@ -7,7 +7,13 @@ export const useCredentialStorage = () => {
   const sessionStorageKey = 'dgraph_admin_session_credentials'
   
   // Determine if we should use persistent storage or session storage
-  const isPersistent = ref(localStorage.getItem('dgraph_admin_persist_credentials') === 'true')
+  // Default to persistent storage unless explicitly set to false
+  const isPersistent = ref(localStorage.getItem('dgraph_admin_persist_credentials') !== 'false')
+  
+  // Set default persistence setting on first run
+  if (localStorage.getItem('dgraph_admin_persist_credentials') === null) {
+    localStorage.setItem('dgraph_admin_persist_credentials', 'true')
+  }
   
   // Set persistence preference
   const setPersistence = (persist: boolean) => {
@@ -137,4 +143,3 @@ export const useCredentialStorage = () => {
     clearAllCredentials
   }
 }
-
