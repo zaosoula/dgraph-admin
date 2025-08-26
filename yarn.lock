@@ -2707,6 +2707,13 @@ __metadata:
   languageName: node
   linkType: hard
 
+"@types/prismjs@npm:^1":
+  version: 1.26.5
+  resolution: "@types/prismjs@npm:1.26.5"
+  checksum: 10c0/5619cb449e0d8df098c8759d6f47bf8fdd510abf5dbdfa999e55c6a2545efbd1e209cc85a33d8d9f4ff2898089a1a6d9a70737c9baffaae635c46852c40d384a
+  languageName: node
+  linkType: hard
+
 "@types/resolve@npm:1.20.2":
   version: 1.20.2
   resolution: "@types/resolve@npm:1.20.2"
@@ -4974,6 +4981,7 @@ __metadata:
     "@types/d3": "npm:^7"
     "@types/diff": "npm:^5.0.8"
     "@types/node": "npm:^20.10.4"
+    "@types/prismjs": "npm:^1"
     "@vueuse/core": "npm:^10.7.0"
     class-variance-authority: "npm:^0.7.0"
     clsx: "npm:^2.0.0"
@@ -4986,6 +4994,7 @@ __metadata:
     lucide-vue-next: "npm:^0.294.0"
     nuxt: "npm:^3.10.0"
     pinia: "npm:^2.1.7"
+    prismjs: "npm:^1.30.0"
     radix-vue: "npm:^1.2.5"
     tailwind-merge: "npm:^2.1.0"
     tailwindcss-animate: "npm:^1.0.7"
@@ -8874,6 +8883,13 @@ __metadata:
   version: 6.1.1
   resolution: "pretty-bytes@npm:6.1.1"
   checksum: 10c0/c7a660b933355f3b4587ad3f001c266a8dd6afd17db9f89ebc50812354bb142df4b9600396ba5999bdb1f9717300387dc311df91895c5f0f2a1780e22495b5f8
+  languageName: node
+  linkType: hard
+
+"prismjs@npm:^1.30.0":
+  version: 1.30.0
+  resolution: "prismjs@npm:1.30.0"
+  checksum: 10c0/f56205bfd58ef71ccfcbcb691fd0eb84adc96c6ff21b0b69fc6fdcf02be42d6ef972ba4aed60466310de3d67733f6a746f89f2fb79c00bf217406d465b3e8f23
   languageName: node
   linkType: hard
 

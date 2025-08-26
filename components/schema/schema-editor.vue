@@ -222,7 +222,7 @@ const highlightLine = (line: string, highlights?: Array<{ start: number; end: nu
   }
   
   return result
-})
+}
 
 // Apply syntax highlighting to all lines
 const syntaxHighlightedDiff = computed(() => {
