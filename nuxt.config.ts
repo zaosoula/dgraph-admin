@@ -3,10 +3,7 @@ export default defineNuxtConfig({
   ssr: false,
   devtools: { enabled: true },
   compatibilityDate: '2025-08-20',
-  modules: [
-    '@nuxtjs/tailwindcss',
-    '@pinia/nuxt'
-  ],
+  modules: ['@nuxtjs/tailwindcss', '@pinia/nuxt', 'shadcn-nuxt'],
   typescript: {
     strict: true
   },
@@ -20,4 +17,3 @@ export default defineNuxtConfig({
     }
   }
 })
-
