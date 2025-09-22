@@ -1,6 +1,6 @@
 export type ConnectionType = 'http' | 'grpc'
 
-export type AuthMethod = 'none' | 'basic' | 'token' | 'api-key' | 'auth-token'
+export type AuthMethod = 'none' | 'basic' | 'token' | 'api-key' | 'auth-token' | 'dg-auth'
 
 export type AuthCredentials = {
   method: AuthMethod
@@ -9,6 +9,7 @@ export type AuthCredentials = {
   apiKey?: string
   token?: string
   authToken?: string
+  dgAuth?: string
 }
 
 export type ConnectionCredentials = {

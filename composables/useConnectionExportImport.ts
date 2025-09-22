@@ -127,6 +127,7 @@ export const useConnectionExportImport = () => {
               apiKey?: string
               token?: string
               authToken?: string
+              dgAuth?: string
             }
             
             // Determine the auth method based on which credential is present
@@ -139,6 +140,8 @@ export const useConnectionExportImport = () => {
               method = 'api-key'
             } else if (oldCredentials.authToken) {
               method = 'auth-token'
+            } else if (oldCredentials.dgAuth) {
+              method = 'dg-auth'
             }
             
             // Create new credentials structure
@@ -149,7 +152,8 @@ export const useConnectionExportImport = () => {
                 password: oldCredentials.password || '',
                 apiKey: oldCredentials.apiKey || '',
                 token: oldCredentials.token || '',
-                authToken: oldCredentials.authToken || ''
+                authToken: oldCredentials.authToken || '',
+                dgAuth: oldCredentials.dgAuth || ''
               },
               admin: {
                 method,
@@ -157,7 +161,8 @@ export const useConnectionExportImport = () => {
                 password: oldCredentials.password || '',
                 apiKey: oldCredentials.apiKey || '',
                 token: oldCredentials.token || '',
-                authToken: oldCredentials.authToken || ''
+                authToken: oldCredentials.authToken || '',
+                dgAuth: oldCredentials.dgAuth || ''
               },
               useUnifiedAuth: true
             }
@@ -311,7 +316,8 @@ export const useConnectionExportImport = () => {
       'password' in credentials ||
       'apiKey' in credentials ||
       'token' in credentials ||
-      'authToken' in credentials
+      'authToken' in credentials ||
+      'dgAuth' in credentials
     )
     
     return isNewFormat || isOldFormat

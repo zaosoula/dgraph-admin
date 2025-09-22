@@ -80,6 +80,12 @@ export class DgraphClient {
         }
         break
         
+      case 'dg-auth':
+        if (authCredentials.dgAuth) {
+          headers['DG-Auth'] = authCredentials.dgAuth
+        }
+        break
+        
       case 'token':
         if (authCredentials.token) {
           headers['Authorization'] = `Bearer ${authCredentials.token}`
