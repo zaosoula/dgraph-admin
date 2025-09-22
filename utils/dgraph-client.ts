@@ -33,10 +33,12 @@ export class DgraphClient {
   private connection: Connection
   private graphqlHeaders: Record<string, string> = {}
   private adminHeaders: Record<string, string> = {}
-  private useProxy: boolean = true
+  private useProxy: boolean
   
   constructor(connection: Connection) {
     this.connection = connection
+    // Use proxy configuration from connection, default to true for backward compatibility
+    this.useProxy = connection.useProxy ?? true
     this.setupHeaders()
   }
   
@@ -102,6 +104,37 @@ export class DgraphClient {
     }
     return this.graphqlHeaders
   }
+
+  // Normalize response from either proxy or direct connection
+  private async normalizeResponse(response: Response): Promise<{
+    ok: boolean
+    status: number
+    statusText: string
+    data: any
+    error?: { message: string; code?: string }
+  }> {
+    if (this.useProxy) {
+      const proxyResponse = await response.json() as ProxyResponse<any>
+      
+      return {
+        ok: proxyResponse.status >= 200 && proxyResponse.status < 300,
+        status: proxyResponse.status,
+        statusText: proxyResponse.statusText,
+        data: proxyResponse.data,
+        error: proxyResponse.error
+      }
+    } else {
+      const data = await response.json()
+      
+      return {
+        ok: response.ok,
+        status: response.status,
+        statusText: response.statusText,
+        data,
+        error: response.ok ? undefined : { message: `HTTP ${response.status}: ${response.statusText}` }
+      }
+    }
+  }
   
   // Get the base URL for API requests (using proxy or direct)
   private getBaseUrl(endpoint: string): string {
@@ -125,12 +158,8 @@ export class DgraphClient {
           headers: this.getHeaders('health')
         });
         
-        if (this.useProxy) {
-          const proxyData = await healthResponse.json() as ProxyResponse<any>;
-          if (proxyData.status >= 200 && proxyData.status < 300) {
-            return true;
-          }
-        } else if (healthResponse.ok) {
+        const normalizedResponse = await this.normalizeResponse(healthResponse);
+        if (normalizedResponse.ok) {
           return true;
         }
       } catch (healthError) {
@@ -173,53 +202,38 @@ export class DgraphClient {
         })
       });
       
-      if (this.useProxy) {
-        const proxyResponse = await response.json() as ProxyResponse<any>;
-        
-        if (proxyResponse.error) {
-          return {
-            error: {
-              message: 'Admin GraphQL query execution failed',
-              details: proxyResponse.error.message
-            }
-          };
-        }
-        
-        if (proxyResponse.status >= 400) {
-          return {
-            error: {
-              message: 'Admin GraphQL query execution failed',
-              details: `Status: ${proxyResponse.status} ${proxyResponse.statusText}`
-            }
-          };
-        }
-        
-        const data = proxyResponse.data;
-        
-        if (data.errors) {
-          return {
-            error: {
-              message: 'Admin GraphQL query execution failed',
-              details: JSON.stringify(data.errors)
-            }
-          };
-        }
-        
-        return { data: data.data as T };
-      } else {
-        const data = await response.json();
-        
-        if (data.errors) {
-          return {
-            error: {
-              message: 'Admin GraphQL query execution failed',
-              details: JSON.stringify(data.errors)
-            }
-          };
-        }
-        
-        return { data: data.data as T };
+      const normalizedResponse = await this.normalizeResponse(response);
+      
+      if (normalizedResponse.error) {
+        return {
+          error: {
+            message: 'Admin GraphQL query execution failed',
+            details: normalizedResponse.error.message
+          }
+        };
       }
+      
+      if (!normalizedResponse.ok) {
+        return {
+          error: {
+            message: 'Admin GraphQL query execution failed',
+            details: `Status: ${normalizedResponse.status} ${normalizedResponse.statusText}`
+          }
+        };
+      }
+      
+      const data = normalizedResponse.data;
+      
+      if (data.errors) {
+        return {
+          error: {
+            message: 'Admin GraphQL query execution failed',
+            details: JSON.stringify(data.errors)
+          }
+        };
+      }
+      
+      return { data: data.data as T };
     } catch (error) {
       return {
         error: {
@@ -323,53 +337,38 @@ export class DgraphClient {
         })
       });
       
-      if (this.useProxy) {
-        const proxyResponse = await response.json() as ProxyResponse<any>;
-        
-        if (proxyResponse.error) {
-          return {
-            error: {
-              message: 'GraphQL query execution failed',
-              details: proxyResponse.error.message
-            }
-          };
-        }
-        
-        if (proxyResponse.status >= 400) {
-          return {
-            error: {
-              message: 'GraphQL query execution failed',
-              details: `Status: ${proxyResponse.status} ${proxyResponse.statusText}`
-            }
-          };
-        }
-        
-        const data = proxyResponse.data;
-        
-        if (data.errors) {
-          return {
-            error: {
-              message: 'GraphQL query execution failed',
-              details: JSON.stringify(data.errors)
-            }
-          };
-        }
-        
-        return { data: data.data as T };
-      } else {
-        const data = await response.json();
-        
-        if (data.errors) {
-          return {
-            error: {
-              message: 'GraphQL query execution failed',
-              details: JSON.stringify(data.errors)
-            }
-          };
-        }
-        
-        return { data: data.data as T };
+      const normalizedResponse = await this.normalizeResponse(response);
+      
+      if (normalizedResponse.error) {
+        return {
+          error: {
+            message: 'GraphQL query execution failed',
+            details: normalizedResponse.error.message
+          }
+        };
       }
+      
+      if (!normalizedResponse.ok) {
+        return {
+          error: {
+            message: 'GraphQL query execution failed',
+            details: `Status: ${normalizedResponse.status} ${normalizedResponse.statusText}`
+          }
+        };
+      }
+      
+      const data = normalizedResponse.data;
+      
+      if (data.errors) {
+        return {
+          error: {
+            message: 'GraphQL query execution failed',
+            details: JSON.stringify(data.errors)
+          }
+        };
+      }
+      
+      return { data: data.data as T };
     } catch (error) {
       return {
         error: {

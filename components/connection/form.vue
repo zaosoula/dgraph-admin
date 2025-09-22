@@ -27,6 +27,7 @@ const formState = reactive({
   type: props.connection?.type || 'http' as ConnectionType,
   url: props.connection?.url || '',
   isSecure: props.connection?.isSecure || false,
+  useProxy: props.connection?.useProxy ?? true, // Default to true for backward compatibility
   useUnifiedAuth: props.connection?.credentials.useUnifiedAuth ?? true,
   credentials: {
     graphql: {
@@ -214,6 +215,7 @@ const testConnection = async () => {
         useUnifiedAuth: formState.useUnifiedAuth
       },
       isSecure: formState.isSecure,
+      useProxy: formState.useProxy,
       createdAt: props.connection?.createdAt || new Date(),
       updatedAt: new Date()
     }
@@ -269,7 +271,8 @@ const saveConnection = async () => {
         name: formState.name,
         type: formState.type,
         url: formState.url,
-        isSecure: formState.isSecure
+        isSecure: formState.isSecure,
+        useProxy: formState.useProxy
       })
       connectionId = props.connection.id
     } else {
@@ -283,7 +286,8 @@ const saveConnection = async () => {
           admin: { method: 'none' },
           useUnifiedAuth: formState.useUnifiedAuth
         }, // Empty credentials in the store
-        isSecure: formState.isSecure
+        isSecure: formState.isSecure,
+        useProxy: formState.useProxy
       })
     }
     
@@ -379,6 +383,22 @@ const cancelForm = () => {
         />
         <label for="isSecure" class="text-sm font-medium">Requires Authentication</label>
       </div>
+    </div>
+    
+    <div class="space-y-2">
+      <div class="flex items-center space-x-2">
+        <input 
+          id="useProxy" 
+          type="checkbox" 
+          v-model="formState.useProxy"
+          class="h-4 w-4 rounded border-gray-300 text-primary focus:ring-primary"
+        />
+        <label for="useProxy" class="text-sm font-medium">Use Server Proxy</label>
+      </div>
+      <p class="text-xs text-muted-foreground">
+        Enable to route requests through the server proxy to avoid CORS issues. 
+        Disable for better performance when connecting to same-origin endpoints or when CORS is properly configured.
+      </p>
     </div>
     
     <div v-if="formState.isSecure" class="space-y-4 border rounded-md p-4">

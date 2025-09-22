@@ -24,6 +24,7 @@ export type Connection = {
   url: string
   credentials: ConnectionCredentials
   isSecure: boolean
+  useProxy?: boolean // Optional proxy configuration, defaults to true for backward compatibility
   createdAt: Date
   updatedAt: Date
 }
