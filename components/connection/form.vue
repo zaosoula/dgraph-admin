@@ -35,7 +35,8 @@ const formState = reactive({
       password: '',
       apiKey: '',
       token: '',
-      authToken: ''
+      authToken: '',
+      dgAuth: ''
     },
     admin: {
       method: 'none' as AuthMethod,
@@ -43,7 +44,8 @@ const formState = reactive({
       password: '',
       apiKey: '',
       token: '',
-      authToken: ''
+      authToken: '',
+      dgAuth: ''
     },
     useUnifiedAuth: props.connection?.credentials.useUnifiedAuth ?? true
   }
@@ -74,6 +76,9 @@ onMounted(() => {
         } else if (graphql.authToken) {
           formState.credentials.graphql.method = 'auth-token'
           formState.credentials.graphql.authToken = graphql.authToken
+        } else if (graphql.dgAuth) {
+          formState.credentials.graphql.method = 'dg-auth'
+          formState.credentials.graphql.dgAuth = graphql.dgAuth
         } else {
           formState.credentials.graphql.method = 'none'
         }
@@ -96,6 +101,9 @@ onMounted(() => {
         } else if (admin.authToken) {
           formState.credentials.admin.method = 'auth-token'
           formState.credentials.admin.authToken = admin.authToken
+        } else if (admin.dgAuth) {
+          formState.credentials.admin.method = 'dg-auth'
+          formState.credentials.admin.dgAuth = admin.dgAuth
         } else {
           formState.credentials.admin.method = 'none'
         }
@@ -159,6 +167,9 @@ const validate = () => {
     } else if (graphqlAuth.method === 'auth-token' && !graphqlAuth.authToken) {
       errors.graphqlAuth = 'Auth Token is required'
       isValid = false
+    } else if (graphqlAuth.method === 'dg-auth' && !graphqlAuth.dgAuth) {
+      errors.graphqlAuth = 'DG-Auth Token is required'
+      isValid = false
     }
     
     // Validate Admin authentication if not using unified auth
@@ -175,6 +186,9 @@ const validate = () => {
         isValid = false
       } else if (adminAuth.method === 'auth-token' && !adminAuth.authToken) {
         errors.adminAuth = 'Auth Token is required'
+        isValid = false
+      } else if (adminAuth.method === 'dg-auth' && !adminAuth.dgAuth) {
+        errors.adminAuth = 'DG-Auth Token is required'
         isValid = false
       }
     }
@@ -322,6 +336,9 @@ const createCredentialsObject = (credentials: any) => {
     case 'auth-token':
       result.authToken = credentials.authToken
       break
+    case 'dg-auth':
+      result.dgAuth = credentials.dgAuth
+      break
   }
   
   return result
@@ -409,6 +426,7 @@ const cancelForm = () => {
             <option value="token">Access Token (Bearer)</option>
             <option value="api-key">API Key (X-Dgraph-ApiKey)</option>
             <option value="auth-token">Auth Token (X-Dgraph-AuthToken)</option>
+            <option value="dg-auth">DG-Auth (DG-Auth)</option>
           </select>
           <p v-if="errors.graphqlAuth" class="text-sm text-destructive">{{ errors.graphqlAuth }}</p>
         </div>
@@ -467,6 +485,17 @@ const cancelForm = () => {
           />
           <p class="text-xs text-muted-foreground">Will be sent as X-Dgraph-AuthToken header</p>
         </div>
+        
+        <!-- DG-Auth -->
+        <div v-if="formState.credentials.graphql.method === 'dg-auth'" class="space-y-2 mt-4">
+          <label for="graphql-dgAuth" class="text-sm font-medium">DG-Auth Token</label>
+          <UiInput 
+            id="graphql-dgAuth" 
+            v-model="formState.credentials.graphql.dgAuth" 
+            placeholder="DG-Auth Token"
+          />
+          <p class="text-xs text-muted-foreground">Will be sent as DG-Auth header</p>
+        </div>
       </div>
       
       <!-- Admin Authentication (only shown when not using unified auth) -->
@@ -486,6 +515,7 @@ const cancelForm = () => {
             <option value="token">Access Token (Bearer)</option>
             <option value="api-key">API Key (X-Dgraph-ApiKey)</option>
             <option value="auth-token">Auth Token (X-Dgraph-AuthToken)</option>
+            <option value="dg-auth">DG-Auth (DG-Auth)</option>
           </select>
           <p v-if="errors.adminAuth" class="text-sm text-destructive">{{ errors.adminAuth }}</p>
         </div>
@@ -544,10 +574,21 @@ const cancelForm = () => {
           />
           <p class="text-xs text-muted-foreground">Will be sent as X-Dgraph-AuthToken header</p>
         </div>
+        
+        <!-- DG-Auth -->
+        <div v-if="formState.credentials.admin.method === 'dg-auth'" class="space-y-2 mt-4">
+          <label for="admin-dgAuth" class="text-sm font-medium">DG-Auth Token</label>
+          <UiInput 
+            id="admin-dgAuth" 
+            v-model="formState.credentials.admin.dgAuth" 
+            placeholder="DG-Auth Token"
+          />
+          <p class="text-xs text-muted-foreground">Will be sent as DG-Auth header</p>
+        </div>
       </div>
       
       <p class="text-xs text-muted-foreground mt-4">
-        Note: For each endpoint, provide either username/password, API key, access token, or auth token based on your Dgraph instance's authentication method.
+        Note: For each endpoint, provide either username/password, API key, access token, auth token, or DG-Auth token based on your Dgraph instance's authentication method.
       </p>
     </div>
     
