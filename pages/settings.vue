@@ -17,7 +17,7 @@ const clearSuccess = ref(false)
 
 // Toggle persistence
 const togglePersistence = () => {
-  credentialStorage.setPersistence(!credentialStorage.isPersistent)
+  credentialStorage.setPersistence(!credentialStorage.isPersistent.value)
 }
 
 // Clear all credentials
@@ -62,11 +62,11 @@ const clearAllCredentials = () => {
                 <button 
                   @click="togglePersistence"
                   class="relative inline-flex h-6 w-11 items-center rounded-full"
-                  :class="credentialStorage.isPersistent ? 'bg-primary' : 'bg-muted'"
+                  :class="credentialStorage.isPersistent.value ? 'bg-primary' : 'bg-muted'"
                 >
                   <span 
                     class="inline-block h-4 w-4 transform rounded-full bg-background transition"
-                    :class="credentialStorage.isPersistent ? 'translate-x-6' : 'translate-x-1'"
+                    :class="credentialStorage.isPersistent.value ? 'translate-x-6' : 'translate-x-1'"
                   ></span>
                 </button>
               </div>
