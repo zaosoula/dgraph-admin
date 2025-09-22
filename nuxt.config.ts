@@ -15,5 +15,5 @@ export default defineNuxtConfig({
         { name: 'description', content: 'Admin interface for managing Dgraph instances' }
       ]
     }
-  }
+  },
 })

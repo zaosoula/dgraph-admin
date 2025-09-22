@@ -1,4 +1,4 @@
-import type { Connection, ConnectionCredentials, AuthCredentials } from '@/types/connection'
+import type { Connection, AuthCredentials } from '@/types/connection'
 
 // GraphQL schema type
 export type GraphQLSchema = {
@@ -18,54 +18,42 @@ export type DgraphResponse<T> = {
   error?: DgraphError
 }
 
-// Proxy response type
-export type ProxyResponse<T> = {
-  status: number
-  statusText: string
-  data: T
-  error?: {
-    message: string
-    code: string
-  }
-}
-
 export class DgraphClient {
   private connection: Connection
   private graphqlHeaders: Record<string, string> = {}
   private adminHeaders: Record<string, string> = {}
-  private useProxy: boolean = true
-  
+
   constructor(connection: Connection) {
     this.connection = connection
     this.setupHeaders()
   }
-  
+
   private setupHeaders() {
     // Base headers
     this.graphqlHeaders = {
       'Content-Type': 'application/json',
     }
-    
+
     this.adminHeaders = {
       'Content-Type': 'application/json',
     }
-    
+
     // Add authentication headers based on credentials
     const { credentials } = this.connection
-    
+
     // Setup GraphQL endpoint headers
     this.setupAuthHeaders(credentials.graphql, this.graphqlHeaders)
-    
+
     // Setup Admin endpoint headers
     this.setupAuthHeaders(credentials.admin, this.adminHeaders)
   }
-  
+
   private setupAuthHeaders(authCredentials: AuthCredentials, headers: Record<string, string>) {
     // Skip if no authentication is required
     if (authCredentials.method === 'none') {
       return
     }
-    
+
     // Apply the appropriate authentication method
     switch (authCredentials.method) {
       case 'api-key':
@@ -73,25 +61,25 @@ export class DgraphClient {
           headers['X-Dgraph-ApiKey'] = authCredentials.apiKey
         }
         break
-        
+
       case 'auth-token':
         if (authCredentials.authToken) {
           headers['X-Dgraph-AuthToken'] = authCredentials.authToken
         }
         break
-        
+
       case 'dg-auth':
         if (authCredentials.dgAuth) {
           headers['DG-Auth'] = authCredentials.dgAuth
         }
         break
-        
+
       case 'token':
         if (authCredentials.token) {
           headers['Authorization'] = `Bearer ${authCredentials.token}`
         }
         break
-        
+
       case 'basic':
         if (authCredentials.username && authCredentials.password) {
           const base64Credentials = btoa(`${authCredentials.username}:${authCredentials.password}`)
@@ -100,7 +88,7 @@ export class DgraphClient {
         break
     }
   }
-  
+
   // Get headers based on endpoint
   private getHeaders(endpoint: string): Record<string, string> {
     if (endpoint.includes('admin')) {
@@ -108,18 +96,12 @@ export class DgraphClient {
     }
     return this.graphqlHeaders
   }
-  
+
   // Get the base URL for API requests (using proxy or direct)
   private getBaseUrl(endpoint: string): string {
-    if (this.useProxy) {
-      // Use the server proxy to avoid CORS issues
-      return `/api/dgraph/${endpoint}?url=${encodeURIComponent(this.connection.url)}`
-    } else {
-      // Direct connection (may have CORS issues)
-      return `${this.connection.url}/${endpoint}`
-    }
+    return `${this.connection.url}/${endpoint}`
   }
-  
+
   // Test connection
   async testConnection(): Promise<boolean> {
     try {
@@ -130,19 +112,12 @@ export class DgraphClient {
           method: 'GET',
           headers: this.getHeaders('health')
         });
-        
-        if (this.useProxy) {
-          const proxyData = await healthResponse.json() as ProxyResponse<any>;
-          if (proxyData.status >= 200 && proxyData.status < 300) {
-            return true;
-          }
-        } else if (healthResponse.ok) {
-          return true;
-        }
+
+        return true;
       } catch (healthError) {
         console.debug('Health endpoint check failed, trying admin endpoint:', healthError);
       }
-      
+
       // If health endpoint fails, try the admin endpoint with a simple query
       try {
         const result = await this.executeAdminQuery<any>('{ __typename }');
@@ -150,7 +125,7 @@ export class DgraphClient {
       } catch (adminError) {
         console.debug('Admin endpoint check failed, trying GraphQL endpoint:', adminError);
       }
-      
+
       // If admin endpoint fails, try the GraphQL endpoint
       try {
         const result = await this.executeQuery<any>('{ __typename }');
@@ -158,14 +133,14 @@ export class DgraphClient {
       } catch (graphqlError) {
         console.debug('GraphQL endpoint check failed:', graphqlError);
       }
-      
+
       return false;
     } catch (error) {
       console.error('Connection test failed:', error);
       return false;
     }
   }
-  
+
   // Execute GraphQL query against the admin endpoint
   async executeAdminQuery<T>(query: string, variables?: Record<string, any>): Promise<DgraphResponse<T>> {
     try {
@@ -178,54 +153,19 @@ export class DgraphClient {
           variables
         })
       });
-      
-      if (this.useProxy) {
-        const proxyResponse = await response.json() as ProxyResponse<any>;
-        
-        if (proxyResponse.error) {
-          return {
-            error: {
-              message: 'Admin GraphQL query execution failed',
-              details: proxyResponse.error.message
-            }
-          };
-        }
-        
-        if (proxyResponse.status >= 400) {
-          return {
-            error: {
-              message: 'Admin GraphQL query execution failed',
-              details: `Status: ${proxyResponse.status} ${proxyResponse.statusText}`
-            }
-          };
-        }
-        
-        const data = proxyResponse.data;
-        
-        if (data.errors) {
-          return {
-            error: {
-              message: 'Admin GraphQL query execution failed',
-              details: JSON.stringify(data.errors)
-            }
-          };
-        }
-        
-        return { data: data.data as T };
-      } else {
-        const data = await response.json();
-        
-        if (data.errors) {
-          return {
-            error: {
-              message: 'Admin GraphQL query execution failed',
-              details: JSON.stringify(data.errors)
-            }
-          };
-        }
-        
-        return { data: data.data as T };
+
+      const data = await response.json();
+
+      if (data.errors) {
+        return {
+          error: {
+            message: 'Admin GraphQL query execution failed',
+            details: JSON.stringify(data.errors)
+          }
+        };
       }
+
+      return { data: data.data as T };
     } catch (error) {
       return {
         error: {
@@ -235,7 +175,7 @@ export class DgraphClient {
       };
     }
   }
-  
+
   // Get GraphQL schema
   async getSchema(): Promise<DgraphResponse<GraphQLSchema>> {
     try {
@@ -247,9 +187,9 @@ export class DgraphClient {
           }
         }
       `;
-      
+
       const result = await this.executeAdminQuery<{ getGQLSchema: { schema: string } }>(query);
-      
+
       if (result.error) {
         return {
           error: {
@@ -258,7 +198,7 @@ export class DgraphClient {
           }
         };
       }
-      
+
       // Extract schema from the response
       const schema = result.data?.getGQLSchema?.schema || '';
       return { data: { schema } };
@@ -271,7 +211,7 @@ export class DgraphClient {
       };
     }
   }
-  
+
   // Update GraphQL schema
   async updateSchema(schema: string): Promise<DgraphResponse<{ success: boolean }>> {
     try {
@@ -285,7 +225,7 @@ export class DgraphClient {
           }
         }
       `;
-      
+
       const variables = {
         input: {
           set: {
@@ -293,9 +233,9 @@ export class DgraphClient {
           }
         }
       };
-      
+
       const result = await this.executeAdminQuery<{ updateGQLSchema: { gqlSchema: { schema: string } } }>(mutation, variables);
-      
+
       if (result.error) {
         return {
           error: {
@@ -304,7 +244,7 @@ export class DgraphClient {
           }
         };
       }
-      
+
       return { data: { success: true } };
     } catch (error) {
       return {
@@ -315,7 +255,7 @@ export class DgraphClient {
       };
     }
   }
-  
+
   // Execute GraphQL query
   async executeQuery<T>(query: string, variables?: Record<string, any>): Promise<DgraphResponse<T>> {
     try {
@@ -328,54 +268,19 @@ export class DgraphClient {
           variables
         })
       });
-      
-      if (this.useProxy) {
-        const proxyResponse = await response.json() as ProxyResponse<any>;
-        
-        if (proxyResponse.error) {
-          return {
-            error: {
-              message: 'GraphQL query execution failed',
-              details: proxyResponse.error.message
-            }
-          };
-        }
-        
-        if (proxyResponse.status >= 400) {
-          return {
-            error: {
-              message: 'GraphQL query execution failed',
-              details: `Status: ${proxyResponse.status} ${proxyResponse.statusText}`
-            }
-          };
-        }
-        
-        const data = proxyResponse.data;
-        
-        if (data.errors) {
-          return {
-            error: {
-              message: 'GraphQL query execution failed',
-              details: JSON.stringify(data.errors)
-            }
-          };
-        }
-        
-        return { data: data.data as T };
-      } else {
-        const data = await response.json();
-        
-        if (data.errors) {
-          return {
-            error: {
-              message: 'GraphQL query execution failed',
-              details: JSON.stringify(data.errors)
-            }
-          };
-        }
-        
-        return { data: data.data as T };
+
+      const data = await response.json();
+
+      if (data.errors) {
+        return {
+          error: {
+            message: 'GraphQL query execution failed',
+            details: JSON.stringify(data.errors)
+          }
+        };
       }
+
+      return { data: data.data as T };
     } catch (error) {
       return {
         error: {
