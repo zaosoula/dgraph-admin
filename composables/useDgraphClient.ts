@@ -79,17 +79,18 @@ export const useDgraphClient = () => {
       }
       
       const testClient = new DgraphClient(connectionWithCredentials)
-      const isConnected = await testClient.testConnection()
+      const testResults = await testClient.testConnection()
       
-      // Update connection state
+      // Update connection state with detailed results
       connectionsStore.updateConnectionState(connectionToTest.id, {
-        isConnected,
+        isConnected: testResults.overallSuccess,
         isLoading: false,
-        error: isConnected ? null : 'Connection failed',
-        lastChecked: new Date()
+        error: testResults.overallSuccess ? null : getConnectionErrorMessage(testResults),
+        lastChecked: new Date(),
+        testResults
       })
       
-      return isConnected
+      return testResults.overallSuccess
     } catch (error) {
       // Update connection state with error
       connectionsStore.updateConnectionState(connectionToTest.id, {
@@ -101,6 +102,21 @@ export const useDgraphClient = () => {
       
       return false
     }
+  }
+  
+  // Helper function to get a meaningful error message from test results
+  const getConnectionErrorMessage = (testResults: any) => {
+    const errors = []
+    if (!testResults.adminHealth.success) {
+      errors.push(`Admin: ${testResults.adminHealth.error}`)
+    }
+    if (!testResults.adminSchemaRead.success) {
+      errors.push(`Schema: ${testResults.adminSchemaRead.error}`)
+    }
+    if (!testResults.clientIntrospection.success) {
+      errors.push(`Client: ${testResults.clientIntrospection.error}`)
+    }
+    return errors.length > 0 ? errors.join('; ') : 'Connection failed'
   }
   
   // Get schema
@@ -133,11 +149,45 @@ export const useDgraphClient = () => {
     return await client.value!.executeQuery<T>(query, variables)
   }
   
+  // Test connection with detailed results
+  const testConnectionDetailed = async (connection?: Connection) => {
+    const connectionToTest = connection || connectionsStore.activeConnection
+    
+    if (!connectionToTest) {
+      console.error('No connection to test')
+      return null
+    }
+    
+    try {
+      let connectionWithCredentials = connectionToTest;
+      
+      // Get stored credentials if the connection is secure
+      if (connectionToTest.isSecure) {
+        const storedCredentials = credentialStorage.getCredentials(connectionToTest.id)
+        
+        if (storedCredentials) {
+          // Create a new connection object with the stored credentials
+          connectionWithCredentials = {
+            ...connectionToTest,
+            credentials: storedCredentials
+          }
+        }
+      }
+      
+      const testClient = new DgraphClient(connectionWithCredentials)
+      return await testClient.testConnection()
+    } catch (error) {
+      console.error('Detailed connection test failed:', error)
+      return null
+    }
+  }
+
   return {
     client,
     isInitialized,
     initializeClient,
     testConnection,
+    testConnectionDetailed,
     getSchema,
     updateSchema,
     executeQuery

@@ -28,9 +28,25 @@ export type Connection = {
   updatedAt: Date
 }
 
+export type ConnectionTestCheckResult = {
+  success: boolean
+  responseTime: number
+  error: string | null
+  timestamp: Date
+}
+
+export type ConnectionTestResult = {
+  adminHealth: ConnectionTestCheckResult
+  adminSchemaRead: ConnectionTestCheckResult
+  clientIntrospection: ConnectionTestCheckResult
+  overallSuccess: boolean
+  totalTime: number
+}
+
 export type ConnectionState = {
   isConnected: boolean
   isLoading: boolean
   error: string | null
   lastChecked: Date | null
+  testResults?: ConnectionTestResult
 }

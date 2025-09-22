@@ -3,7 +3,7 @@ import { ref, reactive, onMounted } from 'vue'
 import { useConnectionsStore } from '@/stores/connections'
 import { useCredentialStorage } from '@/composables/useCredentialStorage'
 import { useDgraphClient } from '@/composables/useDgraphClient'
-import type { Connection, ConnectionType, ConnectionCredentials, AuthMethod } from '@/types/connection'
+import type { Connection, ConnectionType, ConnectionCredentials, AuthMethod, ConnectionTestResult } from '@/types/connection'
 
 const props = defineProps<{
   connection?: Connection
@@ -19,7 +19,7 @@ const credentialStorage = useCredentialStorage()
 const dgraphClient = useDgraphClient()
 
 const isLoading = ref(false)
-const testResult = ref<{ success: boolean; message: string } | null>(null)
+const testResult = ref<ConnectionTestResult | null>(null)
 
 // Form state
 const formState = reactive({
@@ -218,16 +218,60 @@ const testConnection = async () => {
       updatedAt: new Date()
     }
     
-    const isConnected = await dgraphClient.testConnection(tempConnection)
+    const detailedResults = await dgraphClient.testConnectionDetailed(tempConnection)
     
-    testResult.value = {
-      success: isConnected,
-      message: isConnected ? 'Connection successful!' : 'Connection failed. Please check your settings.'
+    if (detailedResults) {
+      testResult.value = detailedResults
+    } else {
+      // Fallback to basic test if detailed test fails
+      const isConnected = await dgraphClient.testConnection(tempConnection)
+      testResult.value = {
+        adminHealth: {
+          success: isConnected,
+          responseTime: 0,
+          error: isConnected ? null : 'Connection test failed',
+          timestamp: new Date()
+        },
+        adminSchemaRead: {
+          success: false,
+          responseTime: 0,
+          error: 'Detailed test unavailable',
+          timestamp: new Date()
+        },
+        clientIntrospection: {
+          success: false,
+          responseTime: 0,
+          error: 'Detailed test unavailable',
+          timestamp: new Date()
+        },
+        overallSuccess: isConnected,
+        totalTime: 0
+      }
     }
   } catch (error) {
+    const timestamp = new Date()
+    const errorMessage = error instanceof Error ? error.message : String(error)
     testResult.value = {
-      success: false,
-      message: `Error: ${error instanceof Error ? error.message : String(error)}`
+      adminHealth: {
+        success: false,
+        responseTime: 0,
+        error: errorMessage,
+        timestamp
+      },
+      adminSchemaRead: {
+        success: false,
+        responseTime: 0,
+        error: errorMessage,
+        timestamp
+      },
+      clientIntrospection: {
+        success: false,
+        responseTime: 0,
+        error: errorMessage,
+        timestamp
+      },
+      overallSuccess: false,
+      totalTime: 0
     }
   } finally {
     isLoading.value = false
@@ -551,8 +595,68 @@ const cancelForm = () => {
       </p>
     </div>
     
-    <div v-if="testResult" class="p-4 rounded-md" :class="testResult.success ? 'bg-green-50 text-green-700' : 'bg-red-50 text-red-700'">
-      {{ testResult.message }}
+    <!-- Detailed Test Results -->
+    <div v-if="testResult" class="space-y-4">
+      <!-- Overall Status -->
+      <div class="p-4 rounded-md" :class="testResult.overallSuccess ? 'bg-green-50 text-green-700' : 'bg-red-50 text-red-700'">
+        <div class="flex items-center justify-between">
+          <span class="font-medium">
+            {{ testResult.overallSuccess ? '✅ Connection Successful!' : '❌ Connection Failed' }}
+          </span>
+          <span class="text-sm opacity-75">{{ testResult.totalTime }}ms</span>
+        </div>
+      </div>
+      
+      <!-- Individual Check Results -->
+      <div class="grid grid-cols-1 md:grid-cols-3 gap-4">
+        <!-- Admin Health Check -->
+        <div class="p-3 border rounded-md" :class="testResult.adminHealth.success ? 'border-green-200 bg-green-50' : 'border-red-200 bg-red-50'">
+          <div class="flex items-center justify-between mb-2">
+            <h4 class="font-medium text-sm" :class="testResult.adminHealth.success ? 'text-green-800' : 'text-red-800'">
+              {{ testResult.adminHealth.success ? '✅' : '❌' }} Admin Health
+            </h4>
+            <span class="text-xs opacity-75" :class="testResult.adminHealth.success ? 'text-green-600' : 'text-red-600'">
+              {{ testResult.adminHealth.responseTime }}ms
+            </span>
+          </div>
+          <p v-if="testResult.adminHealth.error" class="text-xs" :class="testResult.adminHealth.success ? 'text-green-600' : 'text-red-600'">
+            {{ testResult.adminHealth.error }}
+          </p>
+          <p v-else class="text-xs text-green-600">Admin endpoint is accessible</p>
+        </div>
+        
+        <!-- Admin Schema Read -->
+        <div class="p-3 border rounded-md" :class="testResult.adminSchemaRead.success ? 'border-green-200 bg-green-50' : 'border-red-200 bg-red-50'">
+          <div class="flex items-center justify-between mb-2">
+            <h4 class="font-medium text-sm" :class="testResult.adminSchemaRead.success ? 'text-green-800' : 'text-red-800'">
+              {{ testResult.adminSchemaRead.success ? '✅' : '❌' }} Schema Read
+            </h4>
+            <span class="text-xs opacity-75" :class="testResult.adminSchemaRead.success ? 'text-green-600' : 'text-red-600'">
+              {{ testResult.adminSchemaRead.responseTime }}ms
+            </span>
+          </div>
+          <p v-if="testResult.adminSchemaRead.error" class="text-xs" :class="testResult.adminSchemaRead.success ? 'text-green-600' : 'text-red-600'">
+            {{ testResult.adminSchemaRead.error }}
+          </p>
+          <p v-else class="text-xs text-green-600">Schema can be read from admin endpoint</p>
+        </div>
+        
+        <!-- Client Introspection -->
+        <div class="p-3 border rounded-md" :class="testResult.clientIntrospection.success ? 'border-green-200 bg-green-50' : 'border-red-200 bg-red-50'">
+          <div class="flex items-center justify-between mb-2">
+            <h4 class="font-medium text-sm" :class="testResult.clientIntrospection.success ? 'text-green-800' : 'text-red-800'">
+              {{ testResult.clientIntrospection.success ? '✅' : '❌' }} Client Query
+            </h4>
+            <span class="text-xs opacity-75" :class="testResult.clientIntrospection.success ? 'text-green-600' : 'text-red-600'">
+              {{ testResult.clientIntrospection.responseTime }}ms
+            </span>
+          </div>
+          <p v-if="testResult.clientIntrospection.error" class="text-xs" :class="testResult.clientIntrospection.success ? 'text-green-600' : 'text-red-600'">
+            {{ testResult.clientIntrospection.error }}
+          </p>
+          <p v-else class="text-xs text-green-600">Client introspection queries work</p>
+        </div>
+      </div>
     </div>
     
     <div class="flex justify-end space-x-2">

@@ -1,4 +1,4 @@
-import type { Connection, ConnectionCredentials, AuthCredentials } from '@/types/connection'
+import type { Connection, ConnectionCredentials, AuthCredentials, ConnectionTestResult, ConnectionTestCheckResult } from '@/types/connection'
 
 // GraphQL schema type
 export type GraphQLSchema = {
@@ -114,49 +114,85 @@ export class DgraphClient {
     }
   }
   
-  // Test connection
-  async testConnection(): Promise<boolean> {
+  // Test connection with detailed results
+  async testConnection(): Promise<ConnectionTestResult> {
+    const startTime = Date.now()
+    
     try {
-      // First try the health endpoint
-      try {
-        const healthUrl = this.getBaseUrl('health');
-        const healthResponse = await fetch(healthUrl, {
-          method: 'GET',
-          headers: this.getHeaders('health')
-        });
-        
-        if (this.useProxy) {
-          const proxyData = await healthResponse.json() as ProxyResponse<any>;
-          if (proxyData.status >= 200 && proxyData.status < 300) {
-            return true;
+      // Execute all three checks in parallel
+      const [adminHealth, adminSchemaRead, clientIntrospection] = await Promise.allSettled([
+        this.testAdminHealth(),
+        this.testAdminSchemaRead(),
+        this.testClientIntrospection()
+      ])
+      
+      const totalTime = Date.now() - startTime
+      
+      // Extract results from Promise.allSettled
+      const adminHealthResult = adminHealth.status === 'fulfilled' 
+        ? adminHealth.value 
+        : {
+            success: false,
+            responseTime: 0,
+            error: `Admin health check failed: ${adminHealth.reason}`,
+            timestamp: new Date()
           }
-        } else if (healthResponse.ok) {
-          return true;
-        }
-      } catch (healthError) {
-        console.debug('Health endpoint check failed, trying admin endpoint:', healthError);
-      }
       
-      // If health endpoint fails, try the admin endpoint with a simple query
-      try {
-        const result = await this.executeAdminQuery<any>('{ __typename }');
-        return !result.error;
-      } catch (adminError) {
-        console.debug('Admin endpoint check failed, trying GraphQL endpoint:', adminError);
-      }
+      const adminSchemaReadResult = adminSchemaRead.status === 'fulfilled'
+        ? adminSchemaRead.value
+        : {
+            success: false,
+            responseTime: 0,
+            error: `Admin schema read failed: ${adminSchemaRead.reason}`,
+            timestamp: new Date()
+          }
       
-      // If admin endpoint fails, try the GraphQL endpoint
-      try {
-        const result = await this.executeQuery<any>('{ __typename }');
-        return !result.error;
-      } catch (graphqlError) {
-        console.debug('GraphQL endpoint check failed:', graphqlError);
-      }
+      const clientIntrospectionResult = clientIntrospection.status === 'fulfilled'
+        ? clientIntrospection.value
+        : {
+            success: false,
+            responseTime: 0,
+            error: `Client introspection failed: ${clientIntrospection.reason}`,
+            timestamp: new Date()
+          }
       
-      return false;
+      // Determine overall success - at least admin health should work for basic connectivity
+      const overallSuccess = adminHealthResult.success
+      
+      return {
+        adminHealth: adminHealthResult,
+        adminSchemaRead: adminSchemaReadResult,
+        clientIntrospection: clientIntrospectionResult,
+        overallSuccess,
+        totalTime
+      }
     } catch (error) {
-      console.error('Connection test failed:', error);
-      return false;
+      console.error('Connection test failed:', error)
+      const errorMessage = error instanceof Error ? error.message : String(error)
+      const timestamp = new Date()
+      
+      return {
+        adminHealth: {
+          success: false,
+          responseTime: 0,
+          error: `Admin health check failed: ${errorMessage}`,
+          timestamp
+        },
+        adminSchemaRead: {
+          success: false,
+          responseTime: 0,
+          error: `Admin schema read failed: ${errorMessage}`,
+          timestamp
+        },
+        clientIntrospection: {
+          success: false,
+          responseTime: 0,
+          error: `Client introspection failed: ${errorMessage}`,
+          timestamp
+        },
+        overallSuccess: false,
+        totalTime: Date.now() - startTime
+      }
     }
   }
   
@@ -377,6 +413,209 @@ export class DgraphClient {
           details: error instanceof Error ? error.message : String(error)
         }
       };
+    }
+  }
+
+  // Test admin endpoint health
+  async testAdminHealth(): Promise<ConnectionTestCheckResult> {
+    const startTime = Date.now()
+    const timestamp = new Date()
+    
+    try {
+      const url = this.getBaseUrl('admin')
+      const response = await fetch(url, {
+        method: 'POST',
+        headers: this.getHeaders('admin'),
+        body: JSON.stringify({
+          query: '{ __typename }'
+        })
+      })
+      
+      const responseTime = Date.now() - startTime
+      
+      if (this.useProxy) {
+        const proxyData = await response.json() as ProxyResponse<any>
+        const success = proxyData.status >= 200 && proxyData.status < 300
+        
+        return {
+          success,
+          responseTime,
+          error: success ? null : `Admin health check failed: ${proxyData.status} ${proxyData.statusText}`,
+          timestamp
+        }
+      } else {
+        const success = response.ok
+        return {
+          success,
+          responseTime,
+          error: success ? null : `Admin health check failed: ${response.status} ${response.statusText}`,
+          timestamp
+        }
+      }
+    } catch (error) {
+      return {
+        success: false,
+        responseTime: Date.now() - startTime,
+        error: `Admin health check failed: ${error instanceof Error ? error.message : String(error)}`,
+        timestamp
+      }
+    }
+  }
+
+  // Test admin schema read capability
+  async testAdminSchemaRead(): Promise<ConnectionTestCheckResult> {
+    const startTime = Date.now()
+    const timestamp = new Date()
+    
+    try {
+      const result = await this.getSchema()
+      const responseTime = Date.now() - startTime
+      
+      if (result.error) {
+        return {
+          success: false,
+          responseTime,
+          error: `Admin schema read failed: ${result.error.message}`,
+          timestamp
+        }
+      }
+      
+      const hasSchema = result.data?.schema && result.data.schema.length > 0
+      return {
+        success: hasSchema,
+        responseTime,
+        error: hasSchema ? null : 'Admin schema read failed: No schema returned',
+        timestamp
+      }
+    } catch (error) {
+      return {
+        success: false,
+        responseTime: Date.now() - startTime,
+        error: `Admin schema read failed: ${error instanceof Error ? error.message : String(error)}`,
+        timestamp
+      }
+    }
+  }
+
+  // Test client introspection capability
+  async testClientIntrospection(): Promise<ConnectionTestCheckResult> {
+    const startTime = Date.now()
+    const timestamp = new Date()
+    
+    try {
+      // Standard GraphQL introspection query
+      const introspectionQuery = `
+        query IntrospectionQuery {
+          __schema {
+            queryType { name }
+            mutationType { name }
+            subscriptionType { name }
+            types {
+              ...FullType
+            }
+          }
+        }
+        
+        fragment FullType on __Type {
+          kind
+          name
+          description
+          fields(includeDeprecated: true) {
+            name
+            description
+            args {
+              ...InputValue
+            }
+            type {
+              ...TypeRef
+            }
+            isDeprecated
+            deprecationReason
+          }
+          inputFields {
+            ...InputValue
+          }
+          interfaces {
+            ...TypeRef
+          }
+          enumValues(includeDeprecated: true) {
+            name
+            description
+            isDeprecated
+            deprecationReason
+          }
+          possibleTypes {
+            ...TypeRef
+          }
+        }
+        
+        fragment InputValue on __InputValue {
+          name
+          description
+          type { ...TypeRef }
+          defaultValue
+        }
+        
+        fragment TypeRef on __Type {
+          kind
+          name
+          ofType {
+            kind
+            name
+            ofType {
+              kind
+              name
+              ofType {
+                kind
+                name
+                ofType {
+                  kind
+                  name
+                  ofType {
+                    kind
+                    name
+                    ofType {
+                      kind
+                      name
+                      ofType {
+                        kind
+                        name
+                      }
+                    }
+                  }
+                }
+              }
+            }
+          }
+        }
+      `
+      
+      const result = await this.executeQuery(introspectionQuery)
+      const responseTime = Date.now() - startTime
+      
+      if (result.error) {
+        return {
+          success: false,
+          responseTime,
+          error: `Client introspection failed: ${result.error.message}`,
+          timestamp
+        }
+      }
+      
+      const hasSchema = result.data && (result.data as any).__schema
+      return {
+        success: hasSchema,
+        responseTime,
+        error: hasSchema ? null : 'Client introspection failed: No schema returned',
+        timestamp
+      }
+    } catch (error) {
+      return {
+        success: false,
+        responseTime: Date.now() - startTime,
+        error: `Client introspection failed: ${error instanceof Error ? error.message : String(error)}`,
+        timestamp
+      }
     }
   }
 }

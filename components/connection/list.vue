@@ -78,6 +78,34 @@ const formatDate = (date: Date) => {
             <div class="text-muted-foreground">Last Updated:</div>
             <div>{{ formatDate(connection.updatedAt) }}</div>
           </div>
+          
+          <!-- Detailed Test Results -->
+          <div v-if="connectionsStore.connectionStates[connection.id]?.testResults" class="mt-4 pt-4 border-t">
+            <div class="text-sm font-medium mb-2">Connection Status:</div>
+            <div class="grid grid-cols-3 gap-2 text-xs">
+              <div class="flex items-center space-x-1">
+                <div 
+                  class="h-2 w-2 rounded-full" 
+                  :class="connectionsStore.connectionStates[connection.id]?.testResults?.adminHealth.success ? 'bg-green-500' : 'bg-red-500'"
+                ></div>
+                <span class="text-muted-foreground">Admin</span>
+              </div>
+              <div class="flex items-center space-x-1">
+                <div 
+                  class="h-2 w-2 rounded-full" 
+                  :class="connectionsStore.connectionStates[connection.id]?.testResults?.adminSchemaRead.success ? 'bg-green-500' : 'bg-red-500'"
+                ></div>
+                <span class="text-muted-foreground">Schema</span>
+              </div>
+              <div class="flex items-center space-x-1">
+                <div 
+                  class="h-2 w-2 rounded-full" 
+                  :class="connectionsStore.connectionStates[connection.id]?.testResults?.clientIntrospection.success ? 'bg-green-500' : 'bg-red-500'"
+                ></div>
+                <span class="text-muted-foreground">Client</span>
+              </div>
+            </div>
+          </div>
         </UiCardContent>
         
         <UiCardFooter class="flex justify-between">
