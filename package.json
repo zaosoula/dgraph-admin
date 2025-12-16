@@ -7,7 +7,9 @@
     "dev": "nuxt dev --https",
     "generate": "nuxt generate",
     "preview": "nuxt preview",
-    "postinstall": "nuxt prepare"
+    "postinstall": "nuxt prepare",
+    "docker:build": "docker build . -t dgraph-admin",
+    "docker:run": "docker run -p 3333:80 dgraph-admin"
   },
   "dependencies": {
     "@vueuse/core": "^13.9.0",
