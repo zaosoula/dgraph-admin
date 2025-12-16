@@ -9,7 +9,8 @@
     "preview": "nuxt preview",
     "postinstall": "nuxt prepare",
     "docker:build": "docker build . -t dgraph-admin",
-    "docker:run": "docker run -p 3333:80 dgraph-admin"
+    "docker:run": "docker run -p 3333:80 dgraph-admin",
+    "release": "npx changelogen@latest --release --clean --push"
   },
   "dependencies": {
     "@vueuse/core": "^13.9.0",
