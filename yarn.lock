@@ -5335,7 +5335,7 @@ __metadata:
     pinia: "npm:^2.1.7"
     prismjs: "npm:^1.30.0"
     radix-vue: "npm:^1.2.5"
-    reka-ui: "npm:^2.5.0"
+    reka-ui: "npm:^2.6.1"
     shadcn-nuxt: "npm:2.2.0"
     tailwind-merge: "npm:^3.3.1"
     tailwindcss: "npm:^4.1.13"
@@ -9185,9 +9185,9 @@ __metadata:
   languageName: node
   linkType: hard
 
-"reka-ui@npm:^2.5.0":
-  version: 2.5.0
-  resolution: "reka-ui@npm:2.5.0"
+"reka-ui@npm:^2.6.1":
+  version: 2.6.1
+  resolution: "reka-ui@npm:2.6.1"
   dependencies:
     "@floating-ui/dom": "npm:^1.6.13"
     "@floating-ui/vue": "npm:^1.1.6"
@@ -9201,7 +9201,7 @@ __metadata:
     ohash: "npm:^2.0.11"
   peerDependencies:
     vue: ">= 3.2.0"
-  checksum: 10c0/4386dd4b89a7815002910c7ee9f126525d08fae1df30c1e030ef446bd5392de59fda7c3a1014be6ac91f85b1962c69689c3fb3dcca6c830e6867842cb7380741
+  checksum: 10c0/d41dbf810248e2615d978befaeccc0e4fde5ec9e0df915e9cf39ce4db98eb6d5c7c219d85be34adf64d62401277b8f2b4ff0679636e9b85261b48acc7ed5b69c
   languageName: node
   linkType: hard
 
