@@ -1,4 +1,4 @@
-import { ref, computed } from 'vue'
+import { ref, computed, watch } from 'vue'
 import { useConnectionsStore } from '@/stores/connections'
 import { useCredentialStorage } from '@/composables/useCredentialStorage'
 import { DgraphClient } from '@/utils/dgraph-client'
@@ -10,6 +10,14 @@ export const useDgraphClient = () => {
   
   const client = ref<DgraphClient | null>(null)
   const isInitialized = computed(() => client.value !== null)
+  
+  // Watch for active connection changes and invalidate the cached client
+  watch(() => connectionsStore.activeConnectionId, (newConnectionId, oldConnectionId) => {
+    // Only invalidate if the connection actually changed
+    if (newConnectionId !== oldConnectionId) {
+      client.value = null
+    }
+  })
   
   // Initialize client with active connection
   const initializeClient = () => {
@@ -123,7 +131,14 @@ export const useDgraphClient = () => {
   const getSchema = async () => {
     if (!client.value) {
       const initialized = initializeClient()
-      if (!initialized) return { error: { message: 'Failed to initialize client' } }
+      if (!initialized) {
+        return { 
+          error: { 
+            message: 'Failed to initialize client. Please check your connection settings and try again.',
+            code: 'CLIENT_INIT_ERROR'
+          } 
+        }
+      }
     }
     
     return await client.value!.getSchema()
@@ -133,7 +148,14 @@ export const useDgraphClient = () => {
   const updateSchema = async (schema: string) => {
     if (!client.value) {
       const initialized = initializeClient()
-      if (!initialized) return { error: { message: 'Failed to initialize client' } }
+      if (!initialized) {
+        return { 
+          error: { 
+            message: 'Failed to initialize client. Please check your connection settings and try again.',
+            code: 'CLIENT_INIT_ERROR'
+          } 
+        }
+      }
     }
     
     return await client.value!.updateSchema(schema)
@@ -143,7 +165,14 @@ export const useDgraphClient = () => {
   const executeQuery = async <T>(query: string, variables?: Record<string, any>) => {
     if (!client.value) {
       const initialized = initializeClient()
-      if (!initialized) return { error: { message: 'Failed to initialize client' } }
+      if (!initialized) {
+        return { 
+          error: { 
+            message: 'Failed to initialize client. Please check your connection settings and try again.',
+            code: 'CLIENT_INIT_ERROR'
+          } 
+        }
+      }
     }
     
     return await client.value!.executeQuery<T>(query, variables)
