@@ -5330,7 +5330,7 @@ __metadata:
     d3: "npm:^7.9.0"
     diff: "npm:^5.1.0"
     graphql: "npm:^16.8.1"
-    lucide-vue-next: "npm:^0.544.0"
+    lucide-vue-next: "npm:^0.562.0"
     nuxt: "npm:^3.10.0"
     pinia: "npm:^2.1.7"
     prismjs: "npm:^1.30.0"
@@ -7182,12 +7182,12 @@ __metadata:
   languageName: node
   linkType: hard
 
-"lucide-vue-next@npm:^0.544.0":
-  version: 0.544.0
-  resolution: "lucide-vue-next@npm:0.544.0"
+"lucide-vue-next@npm:^0.562.0":
+  version: 0.562.0
+  resolution: "lucide-vue-next@npm:0.562.0"
   peerDependencies:
     vue: ">=3.0.1"
-  checksum: 10c0/a844d7ae0392011bc7cf2c55112b4ad823fdef2096398635deec04c96650b01eb9d7af4f5ae9875f7b8d2b6006877350dc6a964f14947257e626cfc62f2bc83a
+  checksum: 10c0/5ba792ea5e48d01fc99a3c5ae4a59d9767e5d4c7826901800831cf051cf85eb4a680b3564d2910ed4d17dc1d35223c37d006bdbcdb291d90a9491b9c6a20ae14
   languageName: node
   linkType: hard
 
