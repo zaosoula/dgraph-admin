@@ -196,10 +196,37 @@ export function useMinimap(
   }
 
   // Watch for editor changes
-  watch(editorView, (newView) => {
+  watch(editorView, (newView, oldView) => {
+    // Clean up previous listeners
+    cleanup()
+    
     if (newView) {
       updateEditorMetrics()
       nextTick(() => renderMinimap())
+      
+      // Add scroll listener
+      const scrollListener = () => {
+        updateEditorMetrics()
+        nextTick(() => renderMinimap())
+      }
+      newView.scrollDOM.addEventListener('scroll', scrollListener)
+      cleanupFunctions.push(() => newView.scrollDOM.removeEventListener('scroll', scrollListener))
+      
+      // Add document change listener for content updates
+      const updateListener = () => {
+        setTimeout(() => {
+          updateEditorMetrics()
+          nextTick(() => renderMinimap())
+        }, 100) // Small delay to ensure DOM is updated
+      }
+      
+      // Listen for document changes
+      newView.dom.addEventListener('input', updateListener)
+      newView.dom.addEventListener('keyup', updateListener)
+      cleanupFunctions.push(() => {
+        newView.dom.removeEventListener('input', updateListener)
+        newView.dom.removeEventListener('keyup', updateListener)
+      })
     }
   }, { immediate: true })
 
@@ -213,6 +240,13 @@ export function useMinimap(
     nextTick(() => renderMinimap())
   })
 
+  // Force update when total lines change from 0
+  watch(totalLines, (newLines, oldLines) => {
+    if (oldLines === 0 && newLines > 0) {
+      nextTick(() => renderMinimap())
+    }
+  })
+
   // Set up event listeners when canvas is available
   watch(minimapCanvas, (canvas) => {
     if (canvas) {
@@ -223,21 +257,13 @@ export function useMinimap(
     }
   })
 
-  // Set up scroll listener for editor
-  watch(editorView, (view) => {
-    if (view) {
-      const scrollListener = () => {
-        updateEditorMetrics()
-      }
-      
-      view.scrollDOM.addEventListener('scroll', scrollListener)
-      
-      // Cleanup on view change
-      return () => {
-        view.scrollDOM.removeEventListener('scroll', scrollListener)
-      }
-    }
-  })
+  // Cleanup function for event listeners
+  let cleanupFunctions: (() => void)[] = []
+
+  const cleanup = () => {
+    cleanupFunctions.forEach(fn => fn())
+    cleanupFunctions = []
+  }
 
   return {
     // Refs
@@ -262,6 +288,7 @@ export function useMinimap(
     renderMinimap,
     scrollToLine,
     toggleVisibility,
+    cleanup,
     
     // Options
     width,

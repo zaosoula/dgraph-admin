@@ -601,6 +601,7 @@ onMounted(() => {
         <!-- Minimap for diff view -->
         <div v-if="showMinimap" class="hidden lg:block">
           <SchemaMinimap
+            :key="`diff-${schema.length}`"
             :editor-view="editorView"
             :changes="minimapChanges"
             :is-diff-mode="true"
@@ -630,6 +631,7 @@ onMounted(() => {
         <!-- Minimap for editor view -->
         <div v-if="showMinimap" class="hidden lg:block">
           <SchemaMinimap
+            :key="`editor-${schema.length}`"
             :editor-view="editorView"
             :changes="minimapChanges"
             :is-diff-mode="false"

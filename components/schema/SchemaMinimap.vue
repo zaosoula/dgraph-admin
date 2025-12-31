@@ -1,5 +1,5 @@
 <script setup lang="ts">
-import { ref, computed, watch, onMounted, nextTick } from 'vue'
+import { ref, computed, watch, onMounted, onUnmounted, nextTick } from 'vue'
 import { useMinimap, type MinimapChange, type MinimapOptions } from '@/composables/useMinimap'
 import type { EditorView } from '@codemirror/view'
 
@@ -52,7 +52,8 @@ const {
   updateEditorMetrics,
   renderMinimap,
   scrollToLine,
-  toggleVisibility
+  toggleVisibility,
+  cleanup
 } = useMinimap(editorViewRef, changesRef, minimapOptions)
 
 // Handle line click
@@ -113,6 +114,21 @@ onMounted(() => {
     renderMinimap()
   })
 })
+
+// Watch for editor view changes to update loading state
+watch(() => props.editorView, (newView) => {
+  if (newView) {
+    nextTick(() => {
+      updateEditorMetrics()
+      renderMinimap()
+    })
+  }
+}, { immediate: true })
+
+// Cleanup on unmount
+onUnmounted(() => {
+  cleanup()
+})
 </script>
 
 <template>
@@ -167,10 +183,18 @@ onMounted(() => {
       
       <!-- Loading overlay -->
       <div 
-        v-if="totalLines === 0"
+        v-if="totalLines === 0 && !props.editorView"
         class="absolute inset-2 flex items-center justify-center bg-gray-50 rounded"
       >
         <div class="text-xs text-gray-400">Loading...</div>
+      </div>
+      
+      <!-- Empty state -->
+      <div 
+        v-else-if="totalLines === 0 && props.editorView"
+        class="absolute inset-2 flex items-center justify-center bg-gray-50 rounded"
+      >
+        <div class="text-xs text-gray-400">No content</div>
       </div>
     </div>
 
