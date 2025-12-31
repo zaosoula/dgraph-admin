@@ -175,7 +175,8 @@ export const useConnectionExportImport = () => {
               type: connection.type,
               url: connection.url,
               isSecure: connection.isSecure,
-              environment: connection.environment
+              environment: connection.environment,
+              linkedProductionId: connection.linkedProductionId
             })
           } else {
             // Add new connection with potentially converted credentials
@@ -189,7 +190,8 @@ export const useConnectionExportImport = () => {
                 useUnifiedAuth: credentials.useUnifiedAuth ?? true
               },
               isSecure: connection.isSecure,
-              environment: connection.environment
+              environment: connection.environment,
+              linkedProductionId: connection.linkedProductionId
             })
             
             // Save credentials if secure
