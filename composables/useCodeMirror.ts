@@ -76,12 +76,61 @@ export function useCodeMirror(
     }
   })
 
+  // Computed to get the editor view
+  const editorView = computed(() => editorRef.value?.view || null)
+
+  // Get document metrics
+  const getDocumentMetrics = () => {
+    if (!editorView.value) return null
+    
+    const view = editorView.value
+    const doc = view.state.doc
+    
+    return {
+      totalLines: doc.lines,
+      scrollTop: view.scrollDOM.scrollTop,
+      scrollHeight: view.scrollDOM.scrollHeight,
+      clientHeight: view.scrollDOM.clientHeight,
+      lineHeight: view.defaultLineHeight
+    }
+  }
+
+  // Scroll to line
+  const scrollToLine = (lineNumber: number) => {
+    if (!editorView.value) return
+    
+    const view = editorView.value
+    const doc = view.state.doc
+    
+    if (lineNumber < 1 || lineNumber > doc.lines) return
+    
+    const line = doc.line(lineNumber)
+    view.dispatch({
+      effects: EditorView.scrollIntoView(line.from, { y: 'start' })
+    })
+  }
+
+  // Get line at position
+  const getLineAtPosition = (pos: number) => {
+    if (!editorView.value) return null
+    
+    const doc = editorView.value.state.doc
+    try {
+      return doc.lineAt(pos)
+    } catch {
+      return null
+    }
+  }
+
   return {
     value,
     editorRef,
+    editorView,
     extensions: createExtensions(),
     updateContent,
-    updateSchema
+    updateSchema,
+    getDocumentMetrics,
+    scrollToLine,
+    getLineAtPosition
   }
 }
-

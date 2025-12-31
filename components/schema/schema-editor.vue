@@ -8,6 +8,8 @@ import * as diffLib from 'diff'
 import Prism from 'prismjs'
 import 'prismjs/components/prism-graphql'
 import 'prismjs/themes/prism.css'
+import SchemaMinimap from './SchemaMinimap.vue'
+import type { MinimapChange } from '@/composables/useMinimap'
 
 const props = defineProps<{
   initialSchema?: string
@@ -28,9 +30,10 @@ const isLoading = ref(false)
 const error = ref<string | null>(null)
 const showDiff = ref(false)
 const showConfirmDialog = ref(false)
+const showMinimap = ref(true)
 
 // Initialize CodeMirror with vue-codemirror
-const { extensions, value, updateContent, updateSchema } = useCodeMirror(schema.value, {
+const { extensions, value, updateContent, updateSchema, editorView } = useCodeMirror(schema.value, {
   readOnly: props.readOnly,
   onChange: (newValue) => {
     schema.value = newValue
@@ -242,6 +245,51 @@ const hasChanges = computed(() => {
   return originalSchema.value !== schema.value
 })
 
+// Convert diff data to minimap changes
+const minimapChanges = computed((): MinimapChange[] => {
+  if (!originalSchema.value || !schema.value) return []
+  
+  const changes: MinimapChange[] = []
+  const lineDiff = diffLib.diffLines(originalSchema.value, schema.value)
+  
+  let lineNumber = 1
+  
+  lineDiff.forEach(part => {
+    const lines = part.value.split('\n')
+    // Remove the last empty line that results from splitting a string that ends with \n
+    if (lines[lines.length - 1] === '') {
+      lines.pop()
+    }
+    
+    if (part.added) {
+      // Added lines
+      lines.forEach(() => {
+        changes.push({
+          lineNumber,
+          type: 'added',
+          content: lines[lineNumber - 1]
+        })
+        lineNumber++
+      })
+    } else if (part.removed) {
+      // Removed lines - we'll mark them at their original position
+      lines.forEach((line, index) => {
+        changes.push({
+          lineNumber: lineNumber + index,
+          type: 'removed',
+          content: line
+        })
+      })
+      // Don't increment lineNumber for removed lines as they don't exist in the new version
+    } else {
+      // Unchanged lines
+      lineNumber += lines.length
+    }
+  })
+  
+  return changes
+})
+
 // Load schema from active connection
 const loadSchema = async () => {
   if (!connectionsStore.activeConnection) {
@@ -376,6 +424,21 @@ const toggleDiff = () => {
   showDiff.value = !showDiff.value
 }
 
+// Toggle minimap
+const toggleMinimap = () => {
+  showMinimap.value = !showMinimap.value
+}
+
+// Handle minimap events
+const handleMinimapLineClick = (lineNumber: number) => {
+  // Line click is handled by the minimap composable
+  console.log('Navigated to line:', lineNumber)
+}
+
+const handleMinimapVisibilityToggle = (visible: boolean) => {
+  showMinimap.value = visible
+}
+
 // Watch for active connection changes
 watch(() => connectionsStore.activeConnectionId, (newId) => {
   if (newId) {
@@ -405,6 +468,17 @@ onMounted(() => {
       <h3 class="text-lg font-medium">GraphQL Schema</h3>
       
       <div class="flex space-x-2">
+        <!-- Toggle minimap button -->
+        <UiButton 
+          variant="outline" 
+          size="sm" 
+          @click="toggleMinimap"
+          :disabled="isLoading"
+          class="hidden lg:flex"
+        >
+          {{ showMinimap ? 'Hide Map' : 'Show Map' }}
+        </UiButton>
+        
         <!-- Toggle diff view button -->
         <UiButton 
           v-if="hasChanges"
@@ -465,73 +539,105 @@ onMounted(() => {
     </div>
     
     <div v-else-if="showDiff" class="flex-1 border rounded-md overflow-auto">
-      <!-- Diff view -->
-      <div class="flex font-mono text-sm">
-        <!-- Left column (removed) -->
-        <div class="w-1/2 border-r">
-          <div class="flex">
-            <!-- Line numbers -->
-            <div class="w-10 text-right pr-2 text-gray-500 select-none border-r bg-gray-50">
-              <div v-for="line in syntaxHighlightedDiff" :key="`left-${line.leftLineNumber || 'empty'}`" class="px-2">
-                {{ line.leftLineNumber || ' ' }}
+      <!-- Diff view with minimap -->
+      <div class="flex h-full">
+        <!-- Diff content -->
+        <div class="flex-1 font-mono text-sm">
+          <div class="flex h-full">
+            <!-- Left column (removed) -->
+            <div class="w-1/2 border-r">
+              <div class="flex">
+                <!-- Line numbers -->
+                <div class="w-10 text-right pr-2 text-gray-500 select-none border-r bg-gray-50">
+                  <div v-for="line in syntaxHighlightedDiff" :key="`left-${line.leftLineNumber || 'empty'}`" class="px-2">
+                    {{ line.leftLineNumber || ' ' }}
+                  </div>
+                </div>
+                <!-- Content -->
+                <div class="flex-1 overflow-x-auto">
+                  <div 
+                    v-for="line in syntaxHighlightedDiff" 
+                    :key="`left-content-${line.leftLineNumber || 'empty'}`"
+                    :class="line.leftClass"
+                    class="px-2 whitespace-pre"
+                  >
+                    <template v-if="line.leftContent !== null">
+                      <span v-html="line.leftContentHighlighted"></span>
+                    </template>
+                    <span v-else>&nbsp;</span>
+                  </div>
+                </div>
               </div>
             </div>
-            <!-- Content -->
-            <div class="flex-1 overflow-x-auto">
-              <div 
-                v-for="line in syntaxHighlightedDiff" 
-                :key="`left-content-${line.leftLineNumber || 'empty'}`"
-                :class="line.leftClass"
-                class="px-2 whitespace-pre"
-              >
-                <template v-if="line.leftContent !== null">
-                  <span v-html="line.leftContentHighlighted"></span>
-                </template>
-                <span v-else>&nbsp;</span>
+            
+            <!-- Right column (added) -->
+            <div class="w-1/2">
+              <div class="flex">
+                <!-- Line numbers -->
+                <div class="w-10 text-right pr-2 text-gray-500 select-none border-r bg-gray-50">
+                  <div v-for="line in syntaxHighlightedDiff" :key="`right-${line.rightLineNumber || 'empty'}`" class="px-2">
+                    {{ line.rightLineNumber || ' ' }}
+                  </div>
+                </div>
+                <!-- Content -->
+                <div class="flex-1 overflow-x-auto">
+                  <div 
+                    v-for="line in syntaxHighlightedDiff" 
+                    :key="`right-content-${line.rightLineNumber || 'empty'}`"
+                    :class="line.rightClass"
+                    class="px-2 whitespace-pre"
+                  >
+                    <template v-if="line.rightContent !== null">
+                      <span v-html="line.rightContentHighlighted"></span>
+                    </template>
+                    <span v-else>&nbsp;</span>
+                  </div>
+                </div>
               </div>
             </div>
           </div>
         </div>
         
-        <!-- Right column (added) -->
-        <div class="w-1/2">
-          <div class="flex">
-            <!-- Line numbers -->
-            <div class="w-10 text-right pr-2 text-gray-500 select-none border-r bg-gray-50">
-              <div v-for="line in syntaxHighlightedDiff" :key="`right-${line.rightLineNumber || 'empty'}`" class="px-2">
-                {{ line.rightLineNumber || ' ' }}
-              </div>
-            </div>
-            <!-- Content -->
-            <div class="flex-1 overflow-x-auto">
-              <div 
-                v-for="line in syntaxHighlightedDiff" 
-                :key="`right-content-${line.rightLineNumber || 'empty'}`"
-                :class="line.rightClass"
-                class="px-2 whitespace-pre"
-              >
-                <template v-if="line.rightContent !== null">
-                  <span v-html="line.rightContentHighlighted"></span>
-                </template>
-                <span v-else>&nbsp;</span>
-              </div>
-            </div>
-          </div>
+        <!-- Minimap for diff view -->
+        <div v-if="showMinimap" class="hidden lg:block">
+          <SchemaMinimap
+            :editor-view="editorView"
+            :changes="minimapChanges"
+            :is-diff-mode="true"
+            :height="400"
+            @line-click="handleMinimapLineClick"
+            @toggle-visibility="handleMinimapVisibilityToggle"
+          />
         </div>
       </div>
     </div>
     
     <div v-else class="flex-1 border rounded-md overflow-hidden">
-      <!-- Vue CodeMirror editor with GraphQL syntax highlighting -->
-      <div class="w-full h-full overflow-auto">
-        <Codemirror
-          v-model="schema"
-          :extensions="extensions"
-          :indent-with-tab="true"
-          :tab-size="2"
-          class="w-full h-full"
-          style="height: 100%; overflow: auto;"
-        />
+      <!-- Editor view with minimap -->
+      <div class="flex h-full">
+        <!-- Vue CodeMirror editor with GraphQL syntax highlighting -->
+        <div class="flex-1 overflow-auto">
+          <Codemirror
+            v-model="schema"
+            :extensions="extensions"
+            :indent-with-tab="true"
+            :tab-size="2"
+            class="w-full h-full"
+            style="height: 100%; overflow: auto;"
+          />
+        </div>
+        
+        <!-- Minimap for editor view -->
+        <div v-if="showMinimap" class="hidden lg:block">
+          <SchemaMinimap
+            :editor-view="editorView"
+            :changes="minimapChanges"
+            :is-diff-mode="false"
+            :height="400"
+            @line-click="handleMinimapLineClick"
+            @toggle-visibility="handleMinimapVisibilityToggle"
+          />
+        </div>
       </div>
     </div>
   </div>
