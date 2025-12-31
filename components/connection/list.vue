@@ -56,7 +56,19 @@ const formatDate = (date: Date) => {
         @click="setActiveConnection(connection.id)"
       >
         <UiCardHeader class="flex flex-row items-center justify-between pb-2">
-          <UiCardTitle>{{ connection.name }}</UiCardTitle>
+          <div class="flex items-center space-x-2">
+            <UiCardTitle>{{ connection.name }}</UiCardTitle>
+            <span 
+              v-if="connection.environment"
+              class="inline-flex items-center px-2 py-1 rounded-full text-xs font-medium"
+              :class="{
+                'bg-blue-100 text-blue-800 dark:bg-blue-900 dark:text-blue-200': connection.environment === 'Development',
+                'bg-green-100 text-green-800 dark:bg-green-900 dark:text-green-200': connection.environment === 'Production'
+              }"
+            >
+              {{ connection.environment }}
+            </span>
+          </div>
           <div 
             class="h-3 w-3 rounded-full" 
             :class="connectionsStore.connectionStates[connection.id]?.isConnected ? 'bg-green-500' : 'bg-red-500'"

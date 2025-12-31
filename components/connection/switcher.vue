@@ -58,6 +58,16 @@ const switchConnection = (id: string) => {
               v-if="activeConnectionState?.lastChecked"
             ></div>
             <span>{{ activeConnection.name }}</span>
+            <span 
+              v-if="activeConnection.environment"
+              class="inline-flex items-center px-1.5 py-0.5 rounded-full text-xs font-medium"
+              :class="{
+                'bg-blue-100 text-blue-800 dark:bg-blue-900 dark:text-blue-200': activeConnection.environment === 'Development',
+                'bg-green-100 text-green-800 dark:bg-green-900 dark:text-green-200': activeConnection.environment === 'Production'
+              }"
+            >
+              {{ activeConnection.environment }}
+            </span>
           </div>
           <span class="text-xs text-muted-foreground">{{
             activeConnection.url
@@ -105,6 +115,16 @@ const switchConnection = (id: string) => {
                 v-if="activeConnectionState?.lastChecked"
               ></div>
               <span>{{ activeConnection.name }}</span>
+              <span 
+                v-if="activeConnection.environment"
+                class="inline-flex items-center px-1.5 py-0.5 rounded-full text-xs font-medium"
+                :class="{
+                  'bg-blue-100 text-blue-800 dark:bg-blue-900 dark:text-blue-200': activeConnection.environment === 'Development',
+                  'bg-green-100 text-green-800 dark:bg-green-900 dark:text-green-200': activeConnection.environment === 'Production'
+                }"
+              >
+                {{ activeConnection.environment }}
+              </span>
             </div>
           </div>
           <span v-else class="text-muted-foreground">Select a connection</span>
@@ -131,6 +151,16 @@ const switchConnection = (id: string) => {
                 "
               ></div>
               <span>{{ connection.name }}</span>
+              <span 
+                v-if="connection.environment"
+                class="inline-flex items-center px-1.5 py-0.5 rounded-full text-xs font-medium"
+                :class="{
+                  'bg-blue-100 text-blue-800 dark:bg-blue-900 dark:text-blue-200': connection.environment === 'Development',
+                  'bg-green-100 text-green-800 dark:bg-green-900 dark:text-green-200': connection.environment === 'Production'
+                }"
+              >
+                {{ connection.environment }}
+              </span>
             </div>
             <span class="text-xs text-muted-foreground ml-2">{{
               connection.url

@@ -1,6 +1,6 @@
 import { defineStore } from 'pinia'
 import { ref, computed, watch } from 'vue'
-import type { Connection, ConnectionState } from '@/types/connection'
+import type { Connection, ConnectionState, Environment } from '@/types/connection'
 
 // Storage keys
 const STORAGE_KEY_CONNECTIONS = 'dgraph_admin_connections'
@@ -43,6 +43,25 @@ export const useConnectionsStore = defineStore('connections', () => {
   const activeConnectionState = computed(() => {
     if (!activeConnectionId.value) return null
     return connectionStates.value[activeConnectionId.value] || null
+  })
+
+  // Environment-based computed properties
+  const connectionsByEnvironment = computed(() => {
+    const grouped: Record<string, Connection[]> = {
+      Development: [],
+      Production: [],
+      Untagged: []
+    }
+    
+    connections.value.forEach(connection => {
+      if (connection.environment) {
+        grouped[connection.environment].push(connection)
+      } else {
+        grouped.Untagged.push(connection)
+      }
+    })
+    
+    return grouped
   })
 
   // Persist state to localStorage when it changes
@@ -150,6 +169,7 @@ export const useConnectionsStore = defineStore('connections', () => {
     connectionStates,
     activeConnection,
     activeConnectionState,
+    connectionsByEnvironment,
     addConnection,
     updateConnection,
     removeConnection,
