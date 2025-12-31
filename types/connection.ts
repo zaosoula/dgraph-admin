@@ -1,5 +1,12 @@
 export type ConnectionType = 'http' | 'grpc'
 
+export const ENVIRONMENTS = {
+  DEVELOPMENT: 'Development',
+  PRODUCTION: 'Production'
+} as const
+
+export type Environment = typeof ENVIRONMENTS[keyof typeof ENVIRONMENTS]
+
 export type AuthMethod = 'none' | 'basic' | 'token' | 'api-key' | 'auth-token' | 'dg-auth'
 
 export type AuthCredentials = {
@@ -25,6 +32,7 @@ export type Connection = {
   url: string
   credentials: ConnectionCredentials
   isSecure: boolean
+  environment?: Environment
   createdAt: Date
   updatedAt: Date
 }

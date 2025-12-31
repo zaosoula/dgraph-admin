@@ -3,7 +3,7 @@ import { ref, reactive, onMounted } from 'vue'
 import { useConnectionsStore } from '@/stores/connections'
 import { useCredentialStorage } from '@/composables/useCredentialStorage'
 import { useDgraphClient } from '@/composables/useDgraphClient'
-import type { Connection, ConnectionType, ConnectionCredentials, AuthMethod, ConnectionTestResult } from '@/types/connection'
+import type { Connection, ConnectionType, ConnectionCredentials, AuthMethod, ConnectionTestResult, Environment, ENVIRONMENTS } from '@/types/connection'
 
 const props = defineProps<{
   connection?: Connection
@@ -27,6 +27,7 @@ const formState = reactive({
   type: props.connection?.type || 'http' as ConnectionType,
   url: props.connection?.url || '',
   isSecure: props.connection?.isSecure || false,
+  environment: props.connection?.environment || ENVIRONMENTS.DEVELOPMENT,
   useUnifiedAuth: props.connection?.credentials.useUnifiedAuth ?? true,
   credentials: {
     graphql: {
@@ -327,7 +328,8 @@ const saveConnection = async () => {
         name: formState.name,
         type: formState.type,
         url: formState.url,
-        isSecure: formState.isSecure
+        isSecure: formState.isSecure,
+        environment: formState.environment
       })
       connectionId = props.connection.id
     } else {
@@ -341,7 +343,8 @@ const saveConnection = async () => {
           admin: { method: 'none' },
           useUnifiedAuth: formState.useUnifiedAuth
         }, // Empty credentials in the store
-        isSecure: formState.isSecure
+        isSecure: formState.isSecure,
+        environment: formState.environment
       })
     }
     
@@ -427,6 +430,18 @@ const cancelForm = () => {
       >
         <option value="http">HTTP</option>
         <option value="grpc">gRPC</option>
+      </select>
+    </div>
+    
+    <div class="space-y-2">
+      <label for="environment" class="text-sm font-medium">Environment</label>
+      <select 
+        id="environment" 
+        v-model="formState.environment"
+        class="flex h-9 w-full rounded-md border border-input bg-transparent px-3 py-1 text-sm shadow-sm transition-colors file:border-0 file:bg-transparent file:text-sm file:font-medium placeholder:text-muted-foreground focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-ring disabled:cursor-not-allowed disabled:opacity-50"
+      >
+        <option :value="ENVIRONMENTS.DEVELOPMENT">{{ ENVIRONMENTS.DEVELOPMENT }}</option>
+        <option :value="ENVIRONMENTS.PRODUCTION">{{ ENVIRONMENTS.PRODUCTION }}</option>
       </select>
     </div>
     
