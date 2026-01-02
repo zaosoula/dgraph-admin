@@ -2211,6 +2211,22 @@ __metadata:
   languageName: node
   linkType: hard
 
+"@replit/codemirror-minimap@npm:^0.5.2":
+  version: 0.5.2
+  resolution: "@replit/codemirror-minimap@npm:0.5.2"
+  dependencies:
+    crelt: "npm:^1.0.5"
+  peerDependencies:
+    "@codemirror/language": ^6.9.1
+    "@codemirror/lint": ^6.4.2
+    "@codemirror/state": ^6.3.1
+    "@codemirror/view": ^6.21.3
+    "@lezer/common": ^1.1.0
+    "@lezer/highlight": ^1.1.6
+  checksum: 10c0/227514c21e35be47fa7856e59af67de17dca50db547cae993c0f51c349bce594b52fc0bf0e4b5f3e217f081669f467d87d9cc424dd63bf629d6355727dda9f86
+  languageName: node
+  linkType: hard
+
 "@rolldown/pluginutils@npm:1.0.0-beta.29":
   version: 1.0.0-beta.29
   resolution: "@rolldown/pluginutils@npm:1.0.0-beta.29"
@@ -5316,6 +5332,7 @@ __metadata:
     "@nuxt/devtools": "npm:latest"
     "@nuxtjs/tailwindcss": "npm:7.0.0-beta.0"
     "@pinia/nuxt": "npm:^0.5.1"
+    "@replit/codemirror-minimap": "npm:^0.5.2"
     "@types/crypto-js": "npm:^4.2.1"
     "@types/d3": "npm:^7"
     "@types/diff": "npm:^5.0.8"
