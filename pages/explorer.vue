@@ -1,18 +1,18 @@
 <script setup lang="ts">
-import { ref, computed } from 'vue'
-import { 
-  Search, 
-  Database, 
-  BookOpen, 
+import { ref, computed } from "vue";
+import {
+  Search,
+  Database,
+  BookOpen,
   Lightbulb,
-  AlertCircle
-} from 'lucide-vue-next'
-import { useConnectionsStore } from '@/stores/connections'
-import { useQueryExecution } from '@/composables/useQueryExecution'
-import type { ExampleQuery } from '@/types/explorer'
+  AlertCircle,
+} from "lucide-vue-next";
+import { useConnectionsStore } from "@/stores/connections";
+import { useQueryExecution } from "@/composables/useQueryExecution";
+import type { ExampleQuery } from "@/types/explorer";
 
 // Stores and composables
-const connectionsStore = useConnectionsStore()
+const connectionsStore = useConnectionsStore();
 const {
   queryResults,
   queryHistory,
@@ -22,53 +22,56 @@ const {
   executeQueryWithHistory,
   clearHistory,
   removeHistoryItem,
-  clearResults
-} = useQueryExecution()
+  clearResults,
+} = useQueryExecution();
 
 // Page metadata
 useHead({
-  title: 'Data Explorer - Dgraph Admin',
+  title: "Data Explorer - Dgraph Admin",
   meta: [
-    { name: 'description', content: 'Explore and query your Dgraph data with DQL' }
-  ]
-})
+    {
+      name: "description",
+      content: "Explore and query your Dgraph data with DQL",
+    },
+  ],
+});
 
 // Reactive state
-const currentQuery = ref('')
-const showExamples = ref(false)
-const historyCollapsed = ref(false)
+const currentQuery = ref("");
+const showExamples = ref(false);
+const historyCollapsed = ref(false);
 
 // Example queries
 const exampleQueries: ExampleQuery[] = [
   {
-    id: 'basic-1',
-    title: 'Get All Nodes',
-    description: 'Retrieve all nodes with their predicates',
-    category: 'basic',
+    id: "basic-1",
+    title: "Get All Nodes",
+    description: "Retrieve all nodes with their predicates",
+    category: "basic",
     query: `{
   all(func: has(dgraph.type)) {
     uid
     dgraph.type
     expand(_all_)
   }
-}`
+}`,
   },
   {
-    id: 'basic-2',
-    title: 'Get Schema',
-    description: 'Query the current schema',
-    category: 'basic',
+    id: "basic-2",
+    title: "Get Schema",
+    description: "Query the current schema",
+    category: "basic",
     query: `schema {
   type
   predicate
   index
-}`
+}`,
   },
   {
-    id: 'advanced-1',
-    title: 'Filter by Type',
-    description: 'Get nodes of a specific type',
-    category: 'advanced',
+    id: "advanced-1",
+    title: "Filter by Type",
+    description: "Get nodes of a specific type",
+    category: "advanced",
     query: `{
   nodes(func: type(Person)) {
     uid
@@ -76,13 +79,13 @@ const exampleQueries: ExampleQuery[] = [
     age
     email
   }
-}`
+}`,
   },
   {
-    id: 'advanced-2',
-    title: 'Traverse Relationships',
-    description: 'Follow edges between nodes',
-    category: 'advanced',
+    id: "advanced-2",
+    title: "Traverse Relationships",
+    description: "Follow edges between nodes",
+    category: "advanced",
     query: `{
   person(func: eq(name, "John")) {
     uid
@@ -92,72 +95,75 @@ const exampleQueries: ExampleQuery[] = [
       name
     }
   }
-}`
+}`,
   },
   {
-    id: 'aggregation-1',
-    title: 'Count Nodes',
-    description: 'Count nodes by type',
-    category: 'aggregation',
+    id: "aggregation-1",
+    title: "Count Nodes",
+    description: "Count nodes by type",
+    category: "aggregation",
     query: `{
   count(func: has(dgraph.type)) {
     count(uid)
   }
-}`
-  }
-]
+}`,
+  },
+];
 
 // Computed properties
-const hasActiveConnection = computed(() => !!connectionsStore.activeConnection)
+const hasActiveConnection = computed(() => !!connectionsStore.activeConnection);
 const isConnected = computed(() => {
-  if (!connectionsStore.activeConnection) return false
-  const state = connectionsStore.connectionStates[connectionsStore.activeConnection.id]
-  return state?.isConnected || false
-})
+  if (!connectionsStore.activeConnection) return false;
+  const state =
+    connectionsStore.connectionStates[connectionsStore.activeConnection.id];
+  return state?.isConnected || false;
+});
 
-const canExecuteQueries = computed(() => hasActiveConnection.value && isConnected.value)
+const canExecuteQueries = computed(
+  () => hasActiveConnection.value && isConnected.value
+);
 
 const groupedExamples = computed(() => {
   const groups = {
-    basic: exampleQueries.filter(q => q.category === 'basic'),
-    advanced: exampleQueries.filter(q => q.category === 'advanced'),
-    aggregation: exampleQueries.filter(q => q.category === 'aggregation')
-  }
-  return groups
-})
+    basic: exampleQueries.filter((q) => q.category === "basic"),
+    advanced: exampleQueries.filter((q) => q.category === "advanced"),
+    aggregation: exampleQueries.filter((q) => q.category === "aggregation"),
+  };
+  return groups;
+});
 
 // Event handlers
 const handleExecuteQuery = async (query: string) => {
-  if (!canExecuteQueries.value) return
-  
+  if (!canExecuteQueries.value) return;
+
   try {
-    await executeQueryWithHistory(query)
+    await executeQueryWithHistory(query);
   } catch (error) {
     // Error is already handled in the composable
-    console.error('Query execution failed:', error)
+    console.error("Query execution failed:", error);
   }
-}
+};
 
 const handleLoadExample = (query: string) => {
-  currentQuery.value = query
-  showExamples.value = false
-}
+  currentQuery.value = query;
+  showExamples.value = false;
+};
 
 const handleSelectFromHistory = (query: string) => {
-  currentQuery.value = query
-}
+  currentQuery.value = query;
+};
 
 const handleClearQuery = () => {
-  currentQuery.value = ''
-}
+  currentQuery.value = "";
+};
 
 const handleShowHelp = () => {
-  showExamples.value = true
-}
+  showExamples.value = true;
+};
 
 const handleToggleHistory = () => {
-  historyCollapsed.value = !historyCollapsed.value
-}
+  historyCollapsed.value = !historyCollapsed.value;
+};
 </script>
 
 <template>
@@ -165,14 +171,16 @@ const handleToggleHistory = () => {
     <!-- Header -->
     <div class="flex items-center justify-between">
       <div>
-        <h1 class="text-4xl font-bold bg-gradient-to-r from-primary to-primary/60 bg-clip-text text-transparent">
+        <h1
+          class="text-4xl font-bold bg-gradient-to-r from-primary to-primary/60 bg-clip-text text-transparent"
+        >
           Data Explorer
         </h1>
         <p class="text-muted-foreground mt-2">
           Query and explore your Dgraph data using DQL
         </p>
       </div>
-      
+
       <div class="flex items-center space-x-3">
         <UiButton
           variant="outline"
@@ -183,7 +191,7 @@ const handleToggleHistory = () => {
           <BookOpen class="h-4 w-4 mr-2" />
           Examples
         </UiButton>
-        
+
         <UiButton
           v-if="queryResults"
           variant="outline"
@@ -203,13 +211,16 @@ const handleToggleHistory = () => {
           <div class="flex items-start space-x-3">
             <AlertCircle class="h-5 w-5 text-orange-500 flex-shrink-0 mt-0.5" />
             <div>
-              <h4 class="font-medium text-orange-800 mb-1">Connection Required</h4>
+              <h4 class="font-medium text-orange-800 mb-1">
+                Connection Required
+              </h4>
               <p class="text-sm text-orange-700">
                 <span v-if="!hasActiveConnection">
                   Please select an active connection to execute queries.
                 </span>
                 <span v-else-if="!isConnected">
-                  The selected connection is not active. Please check your connection status.
+                  The selected connection is not active. Please check your
+                  connection status.
                 </span>
                 <NuxtLink to="/connections" class="underline ml-2">
                   Manage Connections
@@ -226,7 +237,7 @@ const handleToggleHistory = () => {
       <!-- Query Input (spans 3 columns on large screens) -->
       <div class="lg:col-span-3 space-y-6">
         <!-- Query Editor -->
-        <QueryInput
+        <ExplorerQueryInput
           v-model="currentQuery"
           :is-executing="isExecuting"
           :disabled="!canExecuteQueries"
@@ -234,17 +245,17 @@ const handleToggleHistory = () => {
           @clear="handleClearQuery"
           @help="handleShowHelp"
         />
-        
+
         <!-- Results Display -->
-        <ResultsDisplay
+        <ExplorerResultsDisplay
           :result="queryResults"
           :is-loading="isExecuting"
         />
       </div>
-      
+
       <!-- Sidebar (Query History) -->
       <div class="lg:col-span-1">
-        <QueryHistory
+        <ExplorerQueryHistory
           :history="queryHistory"
           :is-collapsed="historyCollapsed"
           @select-query="handleSelectFromHistory"
@@ -267,7 +278,7 @@ const handleToggleHistory = () => {
             Click on any example to load it into the query editor
           </UiDialogDescription>
         </UiDialogHeader>
-        
+
         <div class="space-y-6 mt-6">
           <!-- Basic Queries -->
           <div>
@@ -283,12 +294,16 @@ const handleToggleHistory = () => {
                 @click="handleLoadExample(example.query)"
               >
                 <h4 class="font-medium mb-1">{{ example.title }}</h4>
-                <p class="text-sm text-muted-foreground mb-2">{{ example.description }}</p>
-                <pre class="text-xs bg-muted p-2 rounded overflow-x-auto"><code>{{ example.query.trim() }}</code></pre>
+                <p class="text-sm text-muted-foreground mb-2">
+                  {{ example.description }}
+                </p>
+                <pre
+                  class="text-xs bg-muted p-2 rounded overflow-x-auto"
+                ><code>{{ example.query.trim() }}</code></pre>
               </div>
             </div>
           </div>
-          
+
           <!-- Advanced Queries -->
           <div>
             <h3 class="text-lg font-semibold mb-3 flex items-center space-x-2">
@@ -303,12 +318,16 @@ const handleToggleHistory = () => {
                 @click="handleLoadExample(example.query)"
               >
                 <h4 class="font-medium mb-1">{{ example.title }}</h4>
-                <p class="text-sm text-muted-foreground mb-2">{{ example.description }}</p>
-                <pre class="text-xs bg-muted p-2 rounded overflow-x-auto"><code>{{ example.query.trim() }}</code></pre>
+                <p class="text-sm text-muted-foreground mb-2">
+                  {{ example.description }}
+                </p>
+                <pre
+                  class="text-xs bg-muted p-2 rounded overflow-x-auto"
+                ><code>{{ example.query.trim() }}</code></pre>
               </div>
             </div>
           </div>
-          
+
           <!-- Aggregation Queries -->
           <div>
             <h3 class="text-lg font-semibold mb-3">Aggregation Queries</h3>
@@ -320,13 +339,17 @@ const handleToggleHistory = () => {
                 @click="handleLoadExample(example.query)"
               >
                 <h4 class="font-medium mb-1">{{ example.title }}</h4>
-                <p class="text-sm text-muted-foreground mb-2">{{ example.description }}</p>
-                <pre class="text-xs bg-muted p-2 rounded overflow-x-auto"><code>{{ example.query.trim() }}</code></pre>
+                <p class="text-sm text-muted-foreground mb-2">
+                  {{ example.description }}
+                </p>
+                <pre
+                  class="text-xs bg-muted p-2 rounded overflow-x-auto"
+                ><code>{{ example.query.trim() }}</code></pre>
               </div>
             </div>
           </div>
         </div>
-        
+
         <UiDialogFooter class="mt-6">
           <UiButton variant="outline" @click="showExamples = false">
             Close
