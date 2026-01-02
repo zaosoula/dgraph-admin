@@ -34,6 +34,7 @@ const formState = reactive({
   url: props.connection?.url || "",
   isSecure: props.connection?.isSecure || false,
   environment: props.connection?.environment || ENVIRONMENTS.DEVELOPMENT,
+  linkedProductionId: props.connection?.linkedProductionId || "",
   useUnifiedAuth: props.connection?.credentials.useUnifiedAuth ?? true,
   credentials: {
     graphql: {
@@ -351,6 +352,7 @@ const saveConnection = async () => {
         url: formState.url,
         isSecure: formState.isSecure,
         environment: formState.environment,
+        linkedProductionId: formState.linkedProductionId || undefined,
       });
       connectionId = props.connection.id;
     } else {
@@ -366,6 +368,7 @@ const saveConnection = async () => {
         }, // Empty credentials in the store
         isSecure: formState.isSecure,
         environment: formState.environment,
+        linkedProductionId: formState.linkedProductionId || undefined,
       });
     }
 
@@ -470,6 +473,31 @@ const cancelForm = () => {
           {{ ENVIRONMENTS.PRODUCTION }}
         </option>
       </select>
+    </div>
+
+    <!-- Linked Production Connection (only for Development environment) -->
+    <div v-if="formState.environment === ENVIRONMENTS.DEVELOPMENT" class="space-y-2">
+      <label for="linkedProduction" class="text-sm font-medium">
+        Linked Production Connection
+        <span class="text-xs text-muted-foreground">(optional)</span>
+      </label>
+      <select
+        id="linkedProduction"
+        v-model="formState.linkedProductionId"
+        class="flex h-9 w-full rounded-md border border-input bg-transparent px-3 py-1 text-sm shadow-sm transition-colors file:border-0 file:bg-transparent file:text-sm file:font-medium placeholder:text-muted-foreground focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-ring disabled:cursor-not-allowed disabled:opacity-50"
+      >
+        <option value="">No linked production connection</option>
+        <option
+          v-for="prodConnection in connectionsStore.productionConnections"
+          :key="prodConnection.id"
+          :value="prodConnection.id"
+        >
+          {{ prodConnection.name }}
+        </option>
+      </select>
+      <p class="text-xs text-muted-foreground">
+        Link this development connection to a production connection to enable schema promotion.
+      </p>
     </div>
 
     <div class="space-y-2">

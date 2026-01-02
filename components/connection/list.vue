@@ -68,6 +68,17 @@ const formatDate = (date: Date) => {
             >
               {{ connection.environment }}
             </span>
+            <!-- Linked Production Indicator -->
+            <span 
+              v-if="connection.environment === 'Development' && connection.linkedProductionId"
+              class="inline-flex items-center px-2 py-1 rounded-full text-xs font-medium bg-purple-100 text-purple-800 dark:bg-purple-900 dark:text-purple-200"
+              :title="`Linked to: ${connectionsStore.getLinkedProduction(connection.id)?.name || 'Unknown'}`"
+            >
+              <svg class="w-3 h-3 mr-1" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M13.828 10.172a4 4 0 00-5.656 0l-4 4a4 4 0 105.656 5.656l1.102-1.102m0 0l4-4a4 4 0 105.656-5.656l-1.102 1.102m-2.554 2.554l-4 4"></path>
+              </svg>
+              Linked
+            </span>
           </div>
           <div 
             class="h-3 w-3 rounded-full" 

@@ -14,8 +14,8 @@
     "release": "npx changelogen@latest --release --clean --push"
   },
   "dependencies": {
+    "@vueuse/core": "^14.1.0",
     "@replit/codemirror-minimap": "^0.5.2",
-    "@vueuse/core": "^13.9.0",
     "class-variance-authority": "^0.7.1",
     "clsx": "^2.1.1",
     "cm6-graphql": "^0.2.1",
@@ -28,7 +28,7 @@
     "pinia": "^2.1.7",
     "prismjs": "^1.30.0",
     "radix-vue": "^1.2.5",
-    "reka-ui": "^2.5.0",
+    "reka-ui": "^2.7.0",
     "tailwind-merge": "^3.3.1",
     "tailwindcss": "^4.1.13",
     "tailwindcss-animate": "^1.0.7",

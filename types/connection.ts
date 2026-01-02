@@ -33,6 +33,7 @@ export type Connection = {
   credentials: ConnectionCredentials
   isSecure: boolean
   environment?: Environment
+  linkedProductionId?: string
   createdAt: Date
   updatedAt: Date
 }

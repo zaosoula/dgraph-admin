@@ -64,6 +64,18 @@ export const useConnectionsStore = defineStore('connections', () => {
     return grouped
   })
 
+  // Get linked production connection for a development connection
+  const getLinkedProduction = computed(() => (connectionId: string) => {
+    const connection = connections.value.find(conn => conn.id === connectionId)
+    if (!connection?.linkedProductionId) return null
+    return connections.value.find(conn => conn.id === connection.linkedProductionId) || null
+  })
+
+  // Get all production connections for linking
+  const productionConnections = computed(() => {
+    return connections.value.filter(conn => conn.environment === 'Production')
+  })
+
   // Persist state to localStorage when it changes
   watch(connections, (newConnections) => {
     saveToLocalStorage(STORAGE_KEY_CONNECTIONS, newConnections)
@@ -163,6 +175,39 @@ export const useConnectionsStore = defineStore('connections', () => {
     }
   }
 
+  function linkConnectionToProduction(devConnectionId: string, prodConnectionId: string) {
+    const devConnection = connections.value.find(conn => conn.id === devConnectionId)
+    const prodConnection = connections.value.find(conn => conn.id === prodConnectionId)
+    
+    if (!devConnection || !prodConnection) {
+      console.error('Connection not found for linking')
+      return false
+    }
+    
+    if (devConnection.environment !== 'Development') {
+      console.error('Only Development connections can be linked to Production')
+      return false
+    }
+    
+    if (prodConnection.environment !== 'Production') {
+      console.error('Can only link to Production connections')
+      return false
+    }
+    
+    return updateConnection(devConnectionId, { linkedProductionId: prodConnectionId })
+  }
+
+  function unlinkConnectionFromProduction(devConnectionId: string) {
+    const devConnection = connections.value.find(conn => conn.id === devConnectionId)
+    
+    if (!devConnection) {
+      console.error('Connection not found for unlinking')
+      return false
+    }
+    
+    return updateConnection(devConnectionId, { linkedProductionId: undefined })
+  }
+
   return {
     connections,
     activeConnectionId,
@@ -170,10 +215,14 @@ export const useConnectionsStore = defineStore('connections', () => {
     activeConnection,
     activeConnectionState,
     connectionsByEnvironment,
+    getLinkedProduction,
+    productionConnections,
     addConnection,
     updateConnection,
     removeConnection,
     setActiveConnection,
-    updateConnectionState
+    updateConnectionState,
+    linkConnectionToProduction,
+    unlinkConnectionFromProduction
   }
 })
