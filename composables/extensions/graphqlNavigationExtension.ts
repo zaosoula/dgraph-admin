@@ -36,6 +36,7 @@ export function createGraphQLNavigationExtension(
 ) {
   return [
     hoverState,
+    highlightState,
     EditorView.domEventHandlers({
       mousemove(event, view) {
         const pos = view.posAtCoords({ x: event.clientX, y: event.clientY })
@@ -104,17 +105,50 @@ export function createGraphQLNavigationExtension(
       }
     }),
     
-    // Add CSS for hover decoration
+    // Add CSS for hover decoration and highlight animation
     EditorView.theme({
       '.graphql-type-hover': {
         textDecoration: 'underline',
         textDecorationColor: '#3b82f6',
         textDecorationThickness: '2px',
         textUnderlineOffset: '2px'
+      },
+      '.graphql-definition-highlight': {
+        backgroundColor: '#fef3c7',
+        borderRadius: '2px',
+        animation: 'graphql-highlight-fade 2s ease-out'
       }
     })
   ]
 }
+
+// Effect to add/remove highlight
+const setHighlightEffect = StateEffect.define<{ from: number; to: number } | null>()
+
+// State field to track highlight decorations
+const highlightState = StateField.define<DecorationSet>({
+  create() {
+    return Decoration.none
+  },
+  update(decorations, tr) {
+    decorations = decorations.map(tr.changes)
+    
+    for (const effect of tr.effects) {
+      if (effect.is(setHighlightEffect)) {
+        decorations = Decoration.none
+        if (effect.value) {
+          const decoration = Decoration.mark({
+            class: 'graphql-definition-highlight'
+          }).range(effect.value.from, effect.value.to)
+          decorations = Decoration.set([decoration])
+        }
+      }
+    }
+    
+    return decorations
+  },
+  provide: f => EditorView.decorations.from(f)
+})
 
 function navigateToDefinition(view: EditorView, typeDef: TypeDefinition) {
   const { start } = typeDef.location
@@ -128,38 +162,15 @@ function navigateToDefinition(view: EditorView, typeDef: TypeDefinition) {
   // Highlight the definition briefly
   const word = view.state.wordAt(start)
   if (word) {
-    const highlightDecoration = Decoration.mark({
-      class: 'graphql-definition-highlight'
-    }).range(word.from, word.to)
-
-    const highlightField = StateField.define<DecorationSet>({
-      create() {
-        return Decoration.set([highlightDecoration])
-      },
-      update(decorations, tr) {
-        return decorations.map(tr.changes)
-      },
-      provide: f => EditorView.decorations.from(f)
-    })
-
-    // Add highlight temporarily
+    // Add highlight
     view.dispatch({
-      effects: StateEffect.appendConfig.of([
-        highlightField,
-        EditorView.theme({
-          '.graphql-definition-highlight': {
-            backgroundColor: '#fef3c7',
-            borderRadius: '2px',
-            animation: 'graphql-highlight-fade 2s ease-out'
-          }
-        })
-      ])
+      effects: setHighlightEffect.of({ from: word.from, to: word.to })
     })
 
     // Remove highlight after animation
     setTimeout(() => {
       view.dispatch({
-        effects: StateEffect.reconfigure.of([])
+        effects: setHighlightEffect.of(null)
       })
     }, 2000)
   }
