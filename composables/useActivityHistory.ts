@@ -16,7 +16,7 @@ export type Activity = {
   error?: string
 }
 
-const MAX_ACTIVITIES = 50
+const MAX_ACTIVITIES = 25 // Reduced to prevent memory issues
 
 export const useActivityHistory = () => {
   const activities = ref<Activity[]>([])
@@ -155,4 +155,3 @@ export const useActivityHistory = () => {
     getActivityColor
   }
 }
-
