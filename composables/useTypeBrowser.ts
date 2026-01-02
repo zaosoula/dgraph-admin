@@ -33,7 +33,7 @@ export const useTypeBrowser = () => {
         }
       `
       
-      const result = await dgraphClient.query(schemaQuery)
+      const result = await dgraphClient.executeQuery(schemaQuery)
       
       if (result.success && result.data?.schema) {
         const schemaData = result.data.schema
@@ -90,7 +90,7 @@ export const useTypeBrowser = () => {
         }
       `
       
-      const result = await dgraphClient.query(typeQuery)
+      const result = await dgraphClient.executeQuery(typeQuery)
       
       if (result.success && result.data?.types) {
         const typeNames = new Set<string>()
@@ -139,7 +139,7 @@ export const useTypeBrowser = () => {
           }
         `
         
-        const result = await dgraphClient.query(countQuery)
+        const result = await dgraphClient.executeQuery(countQuery)
         
         if (result.success && result.data?.count?.[0]?.count !== undefined) {
           const count = result.data.count[0].count

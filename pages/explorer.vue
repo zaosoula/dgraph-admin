@@ -47,7 +47,7 @@ const handleSelectType = async (typeName: string, query: string) => {
 
   try {
     const startTime = Date.now();
-    const result = await dgraphClient.query(query);
+    const result = await dgraphClient.executeQuery(query);
     const executionTime = Date.now() - startTime;
 
     if (result.success && result.data) {
