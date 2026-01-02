@@ -86,9 +86,9 @@ const handleToggleCollapsed = () => {
         <UiCardTitle class="flex items-center space-x-2 text-base">
           <History class="h-4 w-4" />
           <span>Query History</span>
-          <UiBadge v-if="hasHistory" variant="secondary" class="ml-2">
+          <span v-if="hasHistory" class="ml-2 px-2 py-1 text-xs bg-muted rounded-full">
             {{ history.length }}
-          </UiBadge>
+          </span>
         </UiCardTitle>
         
         <div class="flex items-center space-x-1">
@@ -128,7 +128,7 @@ const handleToggleCollapsed = () => {
       </div>
       
       <!-- History list -->
-      <UiScrollArea v-else class="h-[400px] pr-4">
+      <div v-else class="h-[400px] overflow-y-auto pr-4">
         <div class="space-y-2">
           <div
             v-for="item in recentHistory"
@@ -200,7 +200,7 @@ const handleToggleCollapsed = () => {
             Showing 20 of {{ history.length }} queries
           </p>
         </div>
-      </UiScrollArea>
+      </div>
     </UiCardContent>
   </UiCard>
 </template>

@@ -198,21 +198,27 @@ const handleToggleHistory = () => {
 
     <!-- Connection Status -->
     <div v-if="!canExecuteQueries" class="mb-6">
-      <UiAlert variant="warning">
-        <AlertCircle class="h-4 w-4" />
-        <UiAlertTitle>Connection Required</UiAlertTitle>
-        <UiAlertDescription>
-          <span v-if="!hasActiveConnection">
-            Please select an active connection to execute queries.
-          </span>
-          <span v-else-if="!isConnected">
-            The selected connection is not active. Please check your connection status.
-          </span>
-          <NuxtLink to="/connections" class="underline ml-2">
-            Manage Connections
-          </NuxtLink>
-        </UiAlertDescription>
-      </UiAlert>
+      <UiCard class="border-orange-200 bg-orange-50">
+        <UiCardContent class="pt-6">
+          <div class="flex items-start space-x-3">
+            <AlertCircle class="h-5 w-5 text-orange-500 flex-shrink-0 mt-0.5" />
+            <div>
+              <h4 class="font-medium text-orange-800 mb-1">Connection Required</h4>
+              <p class="text-sm text-orange-700">
+                <span v-if="!hasActiveConnection">
+                  Please select an active connection to execute queries.
+                </span>
+                <span v-else-if="!isConnected">
+                  The selected connection is not active. Please check your connection status.
+                </span>
+                <NuxtLink to="/connections" class="underline ml-2">
+                  Manage Connections
+                </NuxtLink>
+              </p>
+            </div>
+          </div>
+        </UiCardContent>
+      </UiCard>
     </div>
 
     <!-- Main Content Grid -->

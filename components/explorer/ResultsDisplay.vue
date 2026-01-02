@@ -151,24 +151,15 @@ const formatExecutionTime = (ms: number): string => {
               {{ showCopySuccess ? 'Copied!' : 'Copy' }}
             </UiButton>
             
-            <UiDropdownMenu>
-              <UiDropdownMenuTrigger as-child>
-                <UiButton variant="outline" size="sm" class="hover-lift">
-                  <Download class="h-4 w-4 mr-1" />
-                  Export
-                </UiButton>
-              </UiDropdownMenuTrigger>
-              <UiDropdownMenuContent>
-                <UiDropdownMenuItem @click="exportData('json')">
-                  <FileJson class="h-4 w-4 mr-2" />
-                  Export as JSON
-                </UiDropdownMenuItem>
-                <UiDropdownMenuItem @click="exportData('csv')">
-                  <Table class="h-4 w-4 mr-2" />
-                  Export as CSV
-                </UiDropdownMenuItem>
-              </UiDropdownMenuContent>
-            </UiDropdownMenu>
+            <UiButton
+              variant="outline"
+              size="sm"
+              @click="exportData('json')"
+              class="hover-lift"
+            >
+              <Download class="h-4 w-4 mr-1" />
+              Export JSON
+            </UiButton>
           </div>
         </div>
       </div>
@@ -178,7 +169,7 @@ const formatExecutionTime = (ms: number): string => {
       <!-- Loading state -->
       <div v-if="isLoading" class="flex items-center justify-center py-12">
         <div class="flex items-center space-x-3">
-          <UiSkeleton class="h-4 w-4 rounded-full animate-spin" />
+          <div class="h-4 w-4 border-2 border-primary border-t-transparent rounded-full animate-spin"></div>
           <span class="text-muted-foreground">Executing query...</span>
         </div>
       </div>
@@ -203,71 +194,74 @@ const formatExecutionTime = (ms: number): string => {
         <p class="text-muted-foreground">Execute a query to see results here</p>
       </div>
       
-      <!-- Results with tabs -->
+      <!-- Results with view switcher -->
       <div v-else-if="hasData">
-        <UiTabs v-model="activeTab" class="w-full">
-          <UiTabsList class="grid w-full grid-cols-3">
-            <UiTabsTrigger value="json" class="flex items-center space-x-2">
-              <FileJson class="h-4 w-4" />
-              <span>JSON</span>
-            </UiTabsTrigger>
-            <UiTabsTrigger 
-              value="table" 
-              class="flex items-center space-x-2"
-              :disabled="!Array.isArray(result.data)"
-            >
-              <Table class="h-4 w-4" />
-              <span>Table</span>
-            </UiTabsTrigger>
-            <UiTabsTrigger value="graph" class="flex items-center space-x-2" disabled>
-              <Network class="h-4 w-4" />
-              <span>Graph</span>
-            </UiTabsTrigger>
-          </UiTabsList>
-          
-          <!-- JSON View -->
-          <UiTabsContent value="json" class="mt-4">
-            <div class="relative">
-              <pre class="bg-muted p-4 rounded-lg overflow-auto max-h-96 text-sm"><code>{{ formattedJson }}</code></pre>
-            </div>
-          </UiTabsContent>
-          
-          <!-- Table View -->
-          <UiTabsContent value="table" class="mt-4">
-            <div v-if="Array.isArray(result.data) && result.data.length > 0" class="border rounded-lg overflow-auto max-h-96">
-              <UiTable>
-                <UiTableHeader>
-                  <UiTableRow>
-                    <UiTableHead v-for="column in tableColumns" :key="column">
-                      {{ column }}
-                    </UiTableHead>
-                  </UiTableRow>
-                </UiTableHeader>
-                <UiTableBody>
-                  <UiTableRow v-for="(row, index) in tableData" :key="index">
-                    <UiTableCell v-for="column in tableColumns" :key="column">
-                      <span v-if="typeof row[column] === 'object'">
-                        {{ JSON.stringify(row[column]) }}
-                      </span>
-                      <span v-else>{{ row[column] }}</span>
-                    </UiTableCell>
-                  </UiTableRow>
-                </UiTableBody>
-              </UiTable>
-            </div>
-            <div v-else class="text-center py-8 text-muted-foreground">
-              Data is not in table format
-            </div>
-          </UiTabsContent>
-          
-          <!-- Graph View (placeholder) -->
-          <UiTabsContent value="graph" class="mt-4">
-            <div class="text-center py-12 text-muted-foreground">
-              <Network class="h-12 w-12 mx-auto mb-4" />
-              <p>Graph visualization coming soon</p>
-            </div>
-          </UiTabsContent>
-        </UiTabs>
+        <!-- View Switcher -->
+        <div class="flex items-center space-x-2 mb-4">
+          <UiButton
+            :variant="activeTab === 'json' ? 'default' : 'outline'"
+            size="sm"
+            @click="activeTab = 'json'"
+            class="flex items-center space-x-2"
+          >
+            <FileJson class="h-4 w-4" />
+            <span>JSON</span>
+          </UiButton>
+          <UiButton
+            :variant="activeTab === 'table' ? 'default' : 'outline'"
+            size="sm"
+            @click="activeTab = 'table'"
+            :disabled="!Array.isArray(result.data)"
+            class="flex items-center space-x-2"
+          >
+            <Table class="h-4 w-4" />
+            <span>Table</span>
+          </UiButton>
+          <UiButton
+            variant="outline"
+            size="sm"
+            disabled
+            class="flex items-center space-x-2 opacity-50"
+          >
+            <Network class="h-4 w-4" />
+            <span>Graph (Soon)</span>
+          </UiButton>
+        </div>
+        
+        <!-- JSON View -->
+        <div v-if="activeTab === 'json'" class="mt-4">
+          <div class="relative">
+            <pre class="bg-muted p-4 rounded-lg overflow-auto max-h-96 text-sm"><code>{{ formattedJson }}</code></pre>
+          </div>
+        </div>
+        
+        <!-- Table View -->
+        <div v-else-if="activeTab === 'table'" class="mt-4">
+          <div v-if="Array.isArray(result.data) && result.data.length > 0" class="border rounded-lg overflow-auto max-h-96">
+            <table class="w-full text-sm">
+              <thead class="bg-muted">
+                <tr>
+                  <th v-for="column in tableColumns" :key="column" class="px-4 py-2 text-left font-medium">
+                    {{ column }}
+                  </th>
+                </tr>
+              </thead>
+              <tbody>
+                <tr v-for="(row, index) in tableData" :key="index" class="border-t">
+                  <td v-for="column in tableColumns" :key="column" class="px-4 py-2">
+                    <span v-if="typeof row[column] === 'object'">
+                      {{ JSON.stringify(row[column]) }}
+                    </span>
+                    <span v-else>{{ row[column] }}</span>
+                  </td>
+                </tr>
+              </tbody>
+            </table>
+          </div>
+          <div v-else class="text-center py-8 text-muted-foreground">
+            Data is not in table format
+          </div>
+        </div>
       </div>
       
       <!-- Empty results -->
