@@ -81,14 +81,46 @@ export const useSchemaPromotion = () => {
         })
       }
       
-      return {
+      const result = {
         devSchema,
         prodSchema,
         hasDifferences,
         differences: differences.length > 0 ? differences : undefined
       }
+
+      // Log activity
+      const { useActivityHistory } = await import('@/composables/useActivityHistory')
+      const { addActivity } = useActivityHistory()
+      
+      addActivity({
+        type: 'schema_comparison',
+        action: hasDifferences ? 'Schema differences detected' : 'Schemas are in sync',
+        connectionName: devConnection.name,
+        connectionId: devConnection.id,
+        status: hasDifferences ? 'warning' : 'success',
+        details: hasDifferences 
+          ? `${differences.length} differences found between dev and production`
+          : 'Development and production schemas match'
+      })
+
+      return result
     } catch (error) {
       console.error('Schema comparison failed:', error)
+      
+      // Log error activity
+      const { useActivityHistory } = await import('@/composables/useActivityHistory')
+      const { addActivity } = useActivityHistory()
+      
+      addActivity({
+        type: 'schema_comparison',
+        action: 'Schema comparison failed',
+        connectionName: devConnection.name,
+        connectionId: devConnection.id,
+        status: 'error',
+        details: 'Unable to retrieve or compare schemas',
+        error: error instanceof Error ? error.message : String(error)
+      })
+      
       return null
     } finally {
       isComparing.value = false
@@ -130,21 +162,68 @@ export const useSchemaPromotion = () => {
       }
       
       if (updateResult.error) {
-        return {
+        const result = {
           success: false,
           error: `Failed to update production schema: ${updateResult.error.message}`,
           backupSchema
         }
+
+        // Log error activity
+        const { useActivityHistory } = await import('@/composables/useActivityHistory')
+        const { addActivity } = useActivityHistory()
+        
+        addActivity({
+          type: 'schema_promotion',
+          action: 'Schema promotion failed',
+          connectionName: devConnection.name,
+          connectionId: devConnection.id,
+          status: 'error',
+          details: `Failed to promote schema to ${prodConnection.name}`,
+          error: result.error
+        })
+
+        return result
       }
       
-      return {
+      const result = {
         success: true,
         backupSchema
       }
+
+      // Log success activity
+      const { useActivityHistory } = await import('@/composables/useActivityHistory')
+      const { addActivity } = useActivityHistory()
+      
+      addActivity({
+        type: 'schema_promotion',
+        action: 'Schema promoted successfully',
+        connectionName: devConnection.name,
+        connectionId: devConnection.id,
+        status: 'success',
+        details: `Schema promoted from ${devConnection.name} to ${prodConnection.name}`
+      })
+
+      return result
     } catch (error) {
+      const errorMessage = error instanceof Error ? error.message : String(error)
+      
+      // Log error activity
+      const { useActivityHistory } = await import('@/composables/useActivityHistory')
+      const { addActivity } = useActivityHistory()
+      
+      addActivity({
+        type: 'schema_promotion',
+        action: 'Schema promotion failed',
+        connectionName: devConnection.name,
+        connectionId: devConnection.id,
+        status: 'error',
+        details: 'Schema promotion encountered an error',
+        error: errorMessage
+      })
+      
       return {
         success: false,
-        error: error instanceof Error ? error.message : String(error)
+        error: errorMessage
       }
     } finally {
       isPromoting.value = false

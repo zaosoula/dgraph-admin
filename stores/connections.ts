@@ -110,6 +110,21 @@ export const useConnectionsStore = defineStore('connections', () => {
       error: null,
       lastChecked: null
     }
+
+    // Log activity
+    if (process.client) {
+      import('@/composables/useActivityHistory').then(({ useActivityHistory }) => {
+        const { addActivity } = useActivityHistory()
+        addActivity({
+          type: 'connection_added',
+          action: 'Connection added',
+          connectionName: newConnection.name,
+          connectionId: id,
+          status: 'success',
+          details: `New ${newConnection.environment || 'untagged'} connection created`
+        })
+      })
+    }
     
     return id
   }
@@ -131,6 +146,7 @@ export const useConnectionsStore = defineStore('connections', () => {
     const index = connections.value.findIndex(conn => conn.id === id)
     if (index === -1) return false
     
+    const connectionToRemove = connections.value[index]
     connections.value.splice(index, 1)
     
     // Remove connection state
@@ -141,6 +157,21 @@ export const useConnectionsStore = defineStore('connections', () => {
     // If active connection is removed, set active to null
     if (activeConnectionId.value === id) {
       activeConnectionId.value = null
+    }
+
+    // Log activity
+    if (process.client) {
+      import('@/composables/useActivityHistory').then(({ useActivityHistory }) => {
+        const { addActivity } = useActivityHistory()
+        addActivity({
+          type: 'connection_removed',
+          action: 'Connection removed',
+          connectionName: connectionToRemove.name,
+          connectionId: id,
+          status: 'info',
+          details: `${connectionToRemove.environment || 'Untagged'} connection deleted`
+        })
+      })
     }
     
     return true
@@ -208,6 +239,96 @@ export const useConnectionsStore = defineStore('connections', () => {
     return updateConnection(devConnectionId, { linkedProductionId: undefined })
   }
 
+  // Bulk refresh state
+  const isRefreshingAll = ref(false)
+  const refreshProgress = ref(0)
+
+  // Refresh all connections
+  const refreshAllConnections = async () => {
+    if (connections.value.length === 0) return { success: 0, failed: 0, results: [] }
+
+    isRefreshingAll.value = true
+    refreshProgress.value = 0
+
+    const { useDgraphClient } = await import('@/composables/useDgraphClient')
+    const { useActivityHistory } = await import('@/composables/useActivityHistory')
+    
+    const { testConnection } = useDgraphClient()
+    const { addActivity } = useActivityHistory()
+
+    const results: Array<{ connection: Connection; success: boolean; error?: string }> = []
+    let completed = 0
+
+    // Test all connections in parallel
+    const testPromises = connections.value.map(async (connection) => {
+      try {
+        const success = await testConnection(connection)
+        const result = { connection, success }
+        
+        // Log activity
+        addActivity({
+          type: 'connection_test',
+          action: success ? 'Connection test passed' : 'Connection test failed',
+          connectionName: connection.name,
+          connectionId: connection.id,
+          status: success ? 'success' : 'error',
+          details: success ? 'Connection is healthy' : 'Connection failed health check'
+        })
+
+        results.push(result)
+        completed++
+        refreshProgress.value = Math.round((completed / connections.value.length) * 100)
+        
+        return result
+      } catch (error) {
+        const errorMessage = error instanceof Error ? error.message : String(error)
+        const result = { connection, success: false, error: errorMessage }
+        
+        // Log activity
+        addActivity({
+          type: 'connection_test',
+          action: 'Connection test failed',
+          connectionName: connection.name,
+          connectionId: connection.id,
+          status: 'error',
+          details: errorMessage,
+          error: errorMessage
+        })
+
+        results.push(result)
+        completed++
+        refreshProgress.value = Math.round((completed / connections.value.length) * 100)
+        
+        return result
+      }
+    })
+
+    await Promise.allSettled(testPromises)
+
+    isRefreshingAll.value = false
+    refreshProgress.value = 100
+
+    const successCount = results.filter(r => r.success).length
+    const failedCount = results.filter(r => !r.success).length
+
+    // Log summary activity
+    addActivity({
+      type: 'connection_test',
+      action: 'Bulk connection refresh completed',
+      connectionName: 'All Connections',
+      connectionId: 'bulk',
+      status: failedCount === 0 ? 'success' : failedCount === results.length ? 'error' : 'warning',
+      details: `${successCount} successful, ${failedCount} failed out of ${results.length} connections`
+    })
+
+    return {
+      success: successCount,
+      failed: failedCount,
+      total: results.length,
+      results
+    }
+  }
+
   return {
     connections,
     activeConnectionId,
@@ -217,12 +338,15 @@ export const useConnectionsStore = defineStore('connections', () => {
     connectionsByEnvironment,
     getLinkedProduction,
     productionConnections,
+    isRefreshingAll,
+    refreshProgress,
     addConnection,
     updateConnection,
     removeConnection,
     setActiveConnection,
     updateConnectionState,
     linkConnectionToProduction,
-    unlinkConnectionFromProduction
+    unlinkConnectionFromProduction,
+    refreshAllConnections
   }
 })
