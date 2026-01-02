@@ -34,6 +34,7 @@ export const useTypeBrowser = () => {
       `
       
       const result = await dgraphClient.executeQuery(schemaQuery)
+      console.log('Schema query result:', result)
       
       if (result.success && result.data?.schema) {
         const schemaData = result.data.schema
@@ -64,6 +65,7 @@ export const useTypeBrowser = () => {
         // Load counts for each type
         await loadTypeCounts()
       } else {
+        console.log('Schema query did not return expected data, falling back to data query')
         // Fallback: try to get types from a different query
         await loadTypesFromData()
       }
@@ -91,6 +93,7 @@ export const useTypeBrowser = () => {
       `
       
       const result = await dgraphClient.executeDQLQuery(typeQuery)
+      console.log('DQL query result:', result)
       
       if (result.success && result.data?.types) {
         const typeNames = new Set<string>()
@@ -111,6 +114,7 @@ export const useTypeBrowser = () => {
           isLoading: false
         }))
         
+        console.log('Setting types from data:', types)
         state.value.types = types
         await loadTypeCounts()
       }
