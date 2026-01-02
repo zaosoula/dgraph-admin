@@ -342,7 +342,9 @@ export class DgraphClient {
       const response = await fetch(url, {
         method: 'POST',
         headers: this.getHeaders('query'),
-        body: query
+        body: JSON.stringify({
+          query
+        })
       });
 
       const data = await response.json();
