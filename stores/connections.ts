@@ -22,46 +22,20 @@ const safeParseJSON = <T>(key: string, defaultValue: T): T => {
 // Helper to safely stringify and save JSON to localStorage
 const saveToLocalStorage = (key: string, value: any): void => {
   try {
-    const jsonString = JSON.stringify(value)
-    
-    // Check if the data is too large (localStorage limit is usually 5-10MB)
-    if (jsonString.length > 2 * 1024 * 1024) { // 2MB limit
-      console.warn(`Data for ${key} is too large (${jsonString.length} chars), cleaning up...`)
-      
-      // If it's connection states, clean up the test results to save space
-      if (key === STORAGE_KEY_CONNECTION_STATES && typeof value === 'object') {
-        const cleanedValue = { ...value }
-        Object.keys(cleanedValue).forEach(connectionId => {
-          if (cleanedValue[connectionId]?.testResults) {
-            // Keep only essential test result info, remove detailed logs
-            const testResults = cleanedValue[connectionId].testResults
-            cleanedValue[connectionId].testResults = {
-              overallSuccess: testResults.overallSuccess,
-              adminHealth: { success: testResults.adminHealth?.success || false },
-              adminSchemaRead: { success: testResults.adminSchemaRead?.success || false },
-              clientIntrospection: { success: testResults.clientIntrospection?.success || false }
-            }
-          }
-        })
-        localStorage.setItem(key, JSON.stringify(cleanedValue))
-        return
-      }
-    }
-    
-    localStorage.setItem(key, jsonString)
+    localStorage.setItem(key, JSON.stringify(value))
   } catch (error) {
     if (error instanceof DOMException && error.name === 'QuotaExceededError') {
-      console.warn(`LocalStorage quota exceeded for ${key}, attempting cleanup...`)
+      console.warn(`LocalStorage quota exceeded for ${key}, clearing to make space...`)
       
-      // Try to clear some space by removing old data
-      if (key === STORAGE_KEY_CONNECTION_STATES) {
+      // For connection states, try to save a minimal version
+      if (key === STORAGE_KEY_CONNECTION_STATES && typeof value === 'object') {
         try {
           // Create a minimal version with only essential data
           const minimalStates: Record<string, any> = {}
           Object.keys(value).forEach(connectionId => {
             minimalStates[connectionId] = {
               isConnected: value[connectionId]?.isConnected || false,
-              isLoading: value[connectionId]?.isLoading || false,
+              isLoading: false, // Reset loading states
               error: value[connectionId]?.error || null,
               lastChecked: value[connectionId]?.lastChecked || null
               // Remove testResults to save space
@@ -76,6 +50,8 @@ const saveToLocalStorage = (key: string, value: any): void => {
         }
       } else {
         console.error(`Error saving value to ${key}:`, error)
+        // For other keys, just remove them if quota exceeded
+        localStorage.removeItem(key)
       }
     } else {
       console.error(`Error saving value to ${key}:`, error)
@@ -89,9 +65,16 @@ export const useConnectionsStore = defineStore('connections', () => {
   const activeConnectionId = ref<string | null>(safeParseJSON<string | null>(STORAGE_KEY_ACTIVE_CONNECTION, null))
   const connectionStates = ref<Record<string, ConnectionState>>(safeParseJSON<Record<string, ConnectionState>>(STORAGE_KEY_CONNECTION_STATES, {}))
 
+  // Flag to prevent infinite loops during cleanup
+  const isCleaningUp = ref(false)
+
   // Clean up localStorage on initialization if needed
   const cleanupLocalStorage = () => {
+    if (isCleaningUp.value) return // Prevent recursive cleanup
+    
     try {
+      isCleaningUp.value = true
+      
       // Check localStorage usage
       let totalSize = 0
       for (let key in localStorage) {
@@ -116,11 +99,23 @@ export const useConnectionsStore = defineStore('connections', () => {
           }
         })
         
+        // Update the ref directly without triggering watchers
         connectionStates.value = cleanedStates
-        saveToLocalStorage(STORAGE_KEY_CONNECTION_STATES, cleanedStates)
+        
+        // Save directly to localStorage without going through saveToLocalStorage to avoid recursion
+        try {
+          localStorage.setItem(STORAGE_KEY_CONNECTION_STATES, JSON.stringify(cleanedStates))
+          console.log('Successfully cleaned up connection states')
+        } catch (error) {
+          console.error('Failed to save cleaned states:', error)
+          // As last resort, clear the key
+          localStorage.removeItem(STORAGE_KEY_CONNECTION_STATES)
+        }
       }
     } catch (error) {
       console.warn('Error during localStorage cleanup:', error)
+    } finally {
+      isCleaningUp.value = false
     }
   }
 
@@ -173,15 +168,21 @@ export const useConnectionsStore = defineStore('connections', () => {
 
   // Persist state to localStorage when it changes
   watch(connections, (newConnections) => {
-    saveToLocalStorage(STORAGE_KEY_CONNECTIONS, newConnections)
+    if (!isCleaningUp.value) {
+      saveToLocalStorage(STORAGE_KEY_CONNECTIONS, newConnections)
+    }
   }, { deep: true })
 
   watch(activeConnectionId, (newActiveConnectionId) => {
-    saveToLocalStorage(STORAGE_KEY_ACTIVE_CONNECTION, newActiveConnectionId)
+    if (!isCleaningUp.value) {
+      saveToLocalStorage(STORAGE_KEY_ACTIVE_CONNECTION, newActiveConnectionId)
+    }
   })
 
   watch(connectionStates, (newConnectionStates) => {
-    saveToLocalStorage(STORAGE_KEY_CONNECTION_STATES, newConnectionStates)
+    if (!isCleaningUp.value) {
+      saveToLocalStorage(STORAGE_KEY_CONNECTION_STATES, newConnectionStates)
+    }
   }, { deep: true })
 
   // Store actions
