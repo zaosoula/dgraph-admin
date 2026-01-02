@@ -29,9 +29,10 @@ const error = ref<string | null>(null)
 const showDiff = ref(false)
 const showConfirmDialog = ref(false)
 
-// Initialize CodeMirror with vue-codemirror
-const { extensions, value, updateContent, updateSchema } = useCodeMirror(schema.value, {
+// Initialize CodeMirror with vue-codemirror and reference linking
+const { extensions, value, updateContent, updateSchema, schemaParser } = useCodeMirror(schema.value, {
   readOnly: props.readOnly,
+  enableReferenceLinks: true,
   onChange: (newValue) => {
     schema.value = newValue
     emit('update:schema', newValue)
@@ -557,5 +558,96 @@ onMounted(() => {
 :deep(.cm-minimap-gutter) {
   background: #f3f4f6;
   border-right: 1px solid #e5e7eb;
+}
+
+/* GraphQL hover tooltip styling */
+::deep(.graphql-hover-tooltip) {
+  z-index: 1000;
+  font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
+}
+
+::deep(.graphql-hover-tooltip .font-mono) {
+  font-family: 'SF Mono', Monaco, 'Cascadia Code', 'Roboto Mono', Consolas, 'Courier New', monospace;
+}
+
+/* GraphQL navigation styling */
+@keyframes graphql-highlight-fade {
+  0% {
+    background-color: #fef3c7;
+  }
+  100% {
+    background-color: transparent;
+  }
+}
+
+::deep(.cm-editor .cm-content) {
+  position: relative;
+}
+
+::deep(.cm-editor .graphql-type-hover) {
+  cursor: pointer;
+}
+
+/* Type reference hover effects */
+::deep(.graphql-type-hover) {
+  text-decoration: underline;
+  text-decoration-color: #3b82f6;
+  text-decoration-thickness: 2px;
+  text-underline-offset: 2px;
+}
+
+::deep(.graphql-definition-highlight) {
+  background-color: #fef3c7;
+  border-radius: 2px;
+  animation: graphql-highlight-fade 2s ease-out;
+}
+
+/* Tooltip content styling with Tailwind-like classes */
+::deep(.graphql-hover-tooltip .bg-blue-100) {
+  background-color: #dbeafe;
+}
+
+::deep(.graphql-hover-tooltip .text-blue-800) {
+  color: #1e40af;
+}
+
+::deep(.graphql-hover-tooltip .bg-purple-100) {
+  background-color: #ede9fe;
+}
+
+::deep(.graphql-hover-tooltip .text-purple-800) {
+  color: #5b21b6;
+}
+
+::deep(.graphql-hover-tooltip .bg-green-100) {
+  background-color: #dcfce7;
+}
+
+::deep(.graphql-hover-tooltip .text-green-800) {
+  color: #166534;
+}
+
+::deep(.graphql-hover-tooltip .bg-orange-100) {
+  background-color: #fed7aa;
+}
+
+::deep(.graphql-hover-tooltip .text-orange-800) {
+  color: #9a3412;
+}
+
+::deep(.graphql-hover-tooltip .bg-yellow-100) {
+  background-color: #fef3c7;
+}
+
+::deep(.graphql-hover-tooltip .text-yellow-800) {
+  color: #92400e;
+}
+
+::deep(.graphql-hover-tooltip .bg-gray-100) {
+  background-color: #f3f4f6;
+}
+
+::deep(.graphql-hover-tooltip .text-gray-800) {
+  color: #1f2937;
 }
 </style>

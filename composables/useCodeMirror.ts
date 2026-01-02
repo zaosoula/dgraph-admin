@@ -6,6 +6,9 @@ import { defaultKeymap, history, historyKeymap } from '@codemirror/commands'
 import { indentOnInput, syntaxHighlighting, defaultHighlightStyle } from '@codemirror/language'
 import { graphql } from 'cm6-graphql'
 import { showMinimap } from '@replit/codemirror-minimap'
+import { useGraphQLSchemaParser } from './useGraphQLSchemaParser'
+import { createGraphQLHoverExtension } from './extensions/graphqlHoverExtension'
+import { createGraphQLNavigationExtension } from './extensions/graphqlNavigationExtension'
 
 export function useCodeMirror(
   initialValue: string = '',
@@ -13,11 +16,15 @@ export function useCodeMirror(
     readOnly?: boolean
     onChange?: (value: string) => void
     schema?: any
+    enableReferenceLinks?: boolean
   } = {}
 ) {
-  const { readOnly = false, onChange, schema } = options
+  const { readOnly = false, onChange, schema, enableReferenceLinks = true } = options
   const value = ref(initialValue)
   const editorRef = ref<InstanceType<typeof Codemirror> | null>(null)
+  
+  // Initialize schema parser for reference linking
+  const schemaParser = enableReferenceLinks ? useGraphQLSchemaParser(value) : null
   
   // Create extensions array with GraphQL support
   const createExtensions = () => {
@@ -42,6 +49,20 @@ export function useCodeMirror(
         }
       })
     ]
+
+    // Add reference linking extensions if enabled and parser is available
+    if (enableReferenceLinks && schemaParser && !readOnly) {
+      extensions.push(
+        createGraphQLHoverExtension(
+          schemaParser.findTypeDefinition,
+          schemaParser.findTypeAtPosition
+        ),
+        ...createGraphQLNavigationExtension(
+          schemaParser.findTypeDefinition,
+          schemaParser.findTypeAtPosition
+        )
+      )
+    }
 
     if (readOnly) {
       extensions.push(EditorState.readOnly.of(true))
@@ -87,6 +108,13 @@ export function useCodeMirror(
     editorRef,
     extensions: createExtensions(),
     updateContent,
-    updateSchema
+    updateSchema,
+    // Expose schema parser for debugging/inspection
+    schemaParser: schemaParser ? {
+      typeDefinitions: schemaParser.typeDefinitions,
+      typeReferences: schemaParser.typeReferences,
+      parseError: schemaParser.parseError,
+      allTypeNames: schemaParser.allTypeNames
+    } : null
   }
 }
