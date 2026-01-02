@@ -39,3 +39,17 @@ export type ExampleQuery = {
   query: string
   category: 'basic' | 'advanced' | 'aggregation'
 }
+
+export type SchemaType = {
+  name: string
+  count?: number
+  fields?: string[]
+  isLoading?: boolean
+}
+
+export type TypeBrowserState = {
+  types: SchemaType[]
+  isLoading: boolean
+  error: string | null
+  selectedType: string | null
+}

@@ -153,6 +153,14 @@ const handleSelectFromHistory = (query: string) => {
   currentQuery.value = query;
 };
 
+const handleSelectType = (typeName: string, query: string) => {
+  currentQuery.value = query
+  // Optionally execute the query immediately
+  if (canExecuteQueries.value) {
+    handleExecuteQuery(query)
+  }
+}
+
 const handleClearQuery = () => {
   currentQuery.value = "";
 };
@@ -234,8 +242,8 @@ const handleToggleHistory = () => {
 
     <!-- Main Content Grid -->
     <div class="grid grid-cols-1 lg:grid-cols-4 gap-6">
-      <!-- Query Input (spans 3 columns on large screens) -->
-      <div class="lg:col-span-3 space-y-6">
+      <!-- Left Column: Query Editor and Results -->
+      <div class="lg:col-span-2 space-y-6">
         <!-- Query Editor -->
         <ExplorerQueryInput
           v-model="currentQuery"
@@ -252,10 +260,16 @@ const handleToggleHistory = () => {
           :is-loading="isExecuting"
         />
       </div>
-
-      <!-- Sidebar (Query History) -->
-      <div class="lg:col-span-1">
-        <ExplorerQueryHistory
+      
+      <!-- Right Column: Type Browser and Query History -->
+      <div class="lg:col-span-2 space-y-6">
+        <!-- Schema Type Browser -->
+        <TypeBrowser
+          @select-type="handleSelectType"
+        />
+        
+        <!-- Query History -->
+        <QueryHistory
           :history="queryHistory"
           :is-collapsed="historyCollapsed"
           @select-query="handleSelectFromHistory"
