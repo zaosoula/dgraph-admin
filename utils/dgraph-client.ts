@@ -16,6 +16,7 @@ export type DgraphError = {
 export type DgraphResponse<T> = {
   data?: T
   error?: DgraphError
+  success?: boolean
 }
 
 export class DgraphClient {
@@ -323,11 +324,46 @@ export class DgraphClient {
         };
       }
 
-      return { data: data.data as T };
+      return { data: data.data as T, success: true };
     } catch (error) {
       return {
         error: {
           message: 'GraphQL query execution failed',
+          details: error instanceof Error ? error.message : String(error)
+        }
+      };
+    }
+  }
+
+  // Execute DQL query against the /query endpoint
+  async executeDQLQuery<T>(query: string): Promise<DgraphResponse<T>> {
+    try {
+      const url = this.getBaseUrl('query');
+      const response = await fetch(url, {
+        method: 'POST',
+        headers: this.getHeaders('query'),
+        body: query
+      });
+
+      const data = await response.json();
+
+      if (data.errors) {
+        return {
+          error: {
+            message: 'DQL query execution failed',
+            details: JSON.stringify(data.errors)
+          }
+        };
+      }
+
+      return { 
+        data: data as T,
+        success: true 
+      };
+    } catch (error) {
+      return {
+        error: {
+          message: 'DQL query execution failed',
           details: error instanceof Error ? error.message : String(error)
         }
       };

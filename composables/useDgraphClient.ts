@@ -177,6 +177,23 @@ export const useDgraphClient = () => {
     
     return await client.value!.executeQuery<T>(query, variables)
   }
+
+  // Execute DQL query
+  const executeDQLQuery = async <T>(query: string) => {
+    if (!client.value) {
+      const initialized = initializeClient()
+      if (!initialized) {
+        return { 
+          error: { 
+            message: 'Failed to initialize client. Please check your connection settings and try again.',
+            code: 'CLIENT_INIT_ERROR'
+          } 
+        }
+      }
+    }
+    
+    return await client.value!.executeDQLQuery<T>(query)
+  }
   
   // Test connection with detailed results
   const testConnectionDetailed = async (connection?: Connection) => {
@@ -219,6 +236,7 @@ export const useDgraphClient = () => {
     testConnectionDetailed,
     getSchema,
     updateSchema,
-    executeQuery
+    executeQuery,
+    executeDQLQuery
   }
 }
