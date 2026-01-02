@@ -1,4 +1,4 @@
-import { EditorView, Decoration, DecorationSet } from '@codemirror/view'
+import { EditorView, Decoration, type DecorationSet } from '@codemirror/view'
 import { StateField, StateEffect, EditorState } from '@codemirror/state'
 import { type TypeDefinition } from '../useGraphQLSchemaParser'
 
