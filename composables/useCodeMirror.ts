@@ -6,6 +6,9 @@ import { defaultKeymap, history, historyKeymap } from '@codemirror/commands'
 import { indentOnInput, syntaxHighlighting, defaultHighlightStyle } from '@codemirror/language'
 import { graphql } from 'cm6-graphql'
 import { showMinimap } from '@replit/codemirror-minimap'
+import { useGraphQLSchemaParser } from './useGraphQLSchemaParser'
+import { createGraphQLHoverExtension } from './extensions/graphqlHoverExtension'
+import { createGraphQLNavigationExtension } from './extensions/graphqlNavigationExtension'
 
 export function useCodeMirror(
   initialValue: string = '',
@@ -13,12 +16,23 @@ export function useCodeMirror(
     readOnly?: boolean
     onChange?: (value: string) => void
     schema?: any
+    enableReferenceLinks?: boolean
   } = {}
 ) {
-  const { readOnly = false, onChange, schema } = options
+  const { readOnly = false, onChange, schema, enableReferenceLinks = true } = options
   const value = ref(initialValue)
   const editorRef = ref<InstanceType<typeof Codemirror> | null>(null)
   
+  // Initialize schema parser for reference linking
+  const schemaParser = enableReferenceLinks ? useGraphQLSchemaParser(value) : null
+  
+
+let create = (v: EditorView) => {
+  const dom = document.createElement('div');
+  return { dom }
+}
+
+
   // Create extensions array with GraphQL support
   const createExtensions = () => {
     const extensions: Extension[] = [
@@ -30,10 +44,13 @@ export function useCodeMirror(
       // Use schema if provided, otherwise just basic GraphQL syntax
       schema ? graphql(schema) : graphql(),
       // Add minimap for better navigation
-      showMinimap.of({
-        side: 'right',
-        showOverlay: 'mouse'
-      }),
+      showMinimap.compute(['doc'], (state) => {
+      return {
+        create,
+        displayText: 'characters',
+        showOverlay: 'mouse-over',
+      }
+    }),
       EditorView.updateListener.of(update => {
         if (update.docChanged) {
           const newValue = update.state.doc.toString()
@@ -42,6 +59,20 @@ export function useCodeMirror(
         }
       })
     ]
+
+    // Add reference linking extensions if enabled and parser is available
+    if (enableReferenceLinks && schemaParser && !readOnly) {
+      extensions.push(
+        createGraphQLHoverExtension(
+          schemaParser.findTypeDefinition,
+          schemaParser.findTypeAtPosition
+        ),
+        ...createGraphQLNavigationExtension(
+          schemaParser.findTypeDefinition,
+          schemaParser.findTypeAtPosition
+        )
+      )
+    }
 
     if (readOnly) {
       extensions.push(EditorState.readOnly.of(true))
@@ -87,6 +118,13 @@ export function useCodeMirror(
     editorRef,
     extensions: createExtensions(),
     updateContent,
-    updateSchema
+    updateSchema,
+    // Expose schema parser for debugging/inspection
+    schemaParser: schemaParser ? {
+      typeDefinitions: schemaParser.typeDefinitions,
+      typeReferences: schemaParser.typeReferences,
+      parseError: schemaParser.parseError,
+      allTypeNames: schemaParser.allTypeNames
+    } : null
   }
 }
