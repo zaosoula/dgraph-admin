@@ -5,6 +5,7 @@ import { EditorView, keymap, lineNumbers } from '@codemirror/view'
 import { defaultKeymap, history, historyKeymap } from '@codemirror/commands'
 import { indentOnInput, syntaxHighlighting, defaultHighlightStyle } from '@codemirror/language'
 import { graphql } from 'cm6-graphql'
+import { showMinimap } from '@replit/codemirror-minimap'
 
 export function useCodeMirror(
   initialValue: string = '',
@@ -18,6 +19,13 @@ export function useCodeMirror(
   const value = ref(initialValue)
   const editorRef = ref<InstanceType<typeof Codemirror> | null>(null)
   
+
+let create = (v: EditorView) => {
+  const dom = document.createElement('div');
+  return { dom }
+}
+
+
   // Create extensions array with GraphQL support
   const createExtensions = () => {
     const extensions: Extension[] = [
@@ -28,6 +36,14 @@ export function useCodeMirror(
       syntaxHighlighting(defaultHighlightStyle),
       // Use schema if provided, otherwise just basic GraphQL syntax
       schema ? graphql(schema) : graphql(),
+      // Add minimap for better navigation
+      showMinimap.compute(['doc'], (state) => {
+      return {
+        create,
+        displayText: 'characters',
+        showOverlay: 'mouse-over',
+      }
+    }),
       EditorView.updateListener.of(update => {
         if (update.docChanged) {
           const newValue = update.state.doc.toString()
@@ -84,4 +100,3 @@ export function useCodeMirror(
     updateSchema
   }
 }
-
