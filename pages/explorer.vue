@@ -1,9 +1,6 @@
 <script setup lang="ts">
 import { ref, computed } from "vue";
-import {
-  Database,
-  AlertCircle,
-} from "lucide-vue-next";
+import { Database, AlertCircle } from "lucide-vue-next";
 import { useConnectionsStore } from "@/stores/connections";
 import { useDgraphClient } from "@/composables/useDgraphClient";
 import type { QueryResult } from "@/types/explorer";
@@ -44,32 +41,32 @@ const canExploreData = computed(
 // Event handlers
 const handleSelectType = async (typeName: string, query: string) => {
   if (!canExploreData.value) return;
-  
+
   selectedType.value = typeName;
   isLoadingData.value = true;
-  
+
   try {
     const startTime = Date.now();
     const result = await dgraphClient.query(query);
     const executionTime = Date.now() - startTime;
-    
+
     if (result.success && result.data) {
       // Count the results
       const resultKey = Object.keys(result.data)[0];
       const resultData = result.data[resultKey];
       const rowCount = Array.isArray(resultData) ? resultData.length : 1;
-      
+
       typeResults.value = {
         data: result.data,
         executionTime,
         rowCount,
-        queryType: 'query'
+        queryType: "query",
       };
     } else {
       typeResults.value = null;
     }
   } catch (error) {
-    console.error('Error loading type data:', error);
+    console.error("Error loading type data:", error);
     typeResults.value = null;
   } finally {
     isLoadingData.value = false;
@@ -97,7 +94,10 @@ const handleSelectType = async (typeName: string, query: string) => {
           v-if="typeResults"
           variant="outline"
           size="sm"
-          @click="typeResults = null; selectedType = null"
+          @click="
+            typeResults = null;
+            selectedType = null;
+          "
           class="hover-lift"
         >
           Clear Results
@@ -137,11 +137,9 @@ const handleSelectType = async (typeName: string, query: string) => {
     <div class="grid grid-cols-1 lg:grid-cols-3 gap-6">
       <!-- Left Column: Schema Type Browser -->
       <div class="lg:col-span-1">
-        <TypeBrowser
-          @select-type="handleSelectType"
-        />
+        <ExplorerTypeBrowser @select-type="handleSelectType" />
       </div>
-      
+
       <!-- Right Column: Results Display -->
       <div class="lg:col-span-2">
         <!-- Selected Type Header -->
@@ -156,26 +154,27 @@ const handleSelectType = async (typeName: string, query: string) => {
         </div>
 
         <!-- Results Display -->
-        <ResultsDisplay
+        <ExplorerResultsDisplay
           :result="typeResults"
           :is-loading="isLoadingData"
         />
-        
+
         <!-- Empty State -->
         <div v-if="!selectedType && !isLoadingData" class="text-center py-12">
-          <div class="w-16 h-16 rounded-full bg-muted flex items-center justify-center mx-auto mb-4">
+          <div
+            class="w-16 h-16 rounded-full bg-muted flex items-center justify-center mx-auto mb-4"
+          >
             <Database class="h-8 w-8 text-muted-foreground" />
           </div>
           <h3 class="text-lg font-medium text-foreground mb-2">
             Select a Type to Explore
           </h3>
           <p class="text-muted-foreground max-w-md mx-auto">
-            Choose a schema type from the left panel to view its data. 
-            Click on any type to see sample records and explore your data visually.
+            Choose a schema type from the left panel to view its data. Click on
+            any type to see sample records and explore your data visually.
           </p>
         </div>
       </div>
     </div>
-
   </div>
 </template>
