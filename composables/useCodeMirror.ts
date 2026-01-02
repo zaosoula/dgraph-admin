@@ -26,6 +26,13 @@ export function useCodeMirror(
   // Initialize schema parser for reference linking
   const schemaParser = enableReferenceLinks ? useGraphQLSchemaParser(value) : null
   
+
+let create = (v: EditorView) => {
+  const dom = document.createElement('div');
+  return { dom }
+}
+
+
   // Create extensions array with GraphQL support
   const createExtensions = () => {
     const extensions: Extension[] = [
@@ -37,10 +44,13 @@ export function useCodeMirror(
       // Use schema if provided, otherwise just basic GraphQL syntax
       schema ? graphql(schema) : graphql(),
       // Add minimap for better navigation
-      showMinimap.of({
-        side: 'right',
-        showOverlay: 'mouse'
-      }),
+      showMinimap.compute(['doc'], (state) => {
+      return {
+        create,
+        displayText: 'characters',
+        showOverlay: 'mouse-over',
+      }
+    }),
       EditorView.updateListener.of(update => {
         if (update.docChanged) {
           const newValue = update.state.doc.toString()

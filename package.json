@@ -14,8 +14,8 @@
     "release": "npx changelogen@latest --release --clean --push"
   },
   "dependencies": {
-    "@vueuse/core": "^14.1.0",
     "@replit/codemirror-minimap": "^0.5.2",
+    "@vueuse/core": "^14.1.0",
     "class-variance-authority": "^0.7.1",
     "clsx": "^2.1.1",
     "cm6-graphql": "^0.2.1",
