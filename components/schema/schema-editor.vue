@@ -542,4 +542,20 @@ onMounted(() => {
 .token {
   background: transparent !important;
 }
+
+/* Minimap styling */
+:deep(.cm-minimap) {
+  border-left: 1px solid #e5e7eb;
+  background: #f9fafb;
+}
+
+:deep(.cm-minimap-overlay) {
+  background: rgba(59, 130, 246, 0.1);
+  border: 1px solid rgba(59, 130, 246, 0.3);
+}
+
+:deep(.cm-minimap-gutter) {
+  background: #f3f4f6;
+  border-right: 1px solid #e5e7eb;
+}
 </style>
