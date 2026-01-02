@@ -12,6 +12,7 @@ import {
   ChevronRight,
   Activity,
   Zap,
+  Search,
 } from "lucide-vue-next";
 
 const route = useRoute();
@@ -32,6 +33,13 @@ const navigationItems = [
     href: "/connections",
     icon: Database,
     description: "Manage Dgraph connections",
+  },
+  {
+    name: "Data Explorer",
+    href: "/explorer",
+    icon: Search,
+    description: "Query and explore data",
+    disabled: !connectionsStore.activeConnection,
   },
   {
     name: "Schema",
