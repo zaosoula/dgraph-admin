@@ -11,7 +11,8 @@ import {
   GitBranch,
   Clock,
   CheckCircle,
-  AlertCircle
+  AlertCircle,
+  Search
 } from 'lucide-vue-next'
 
 const connectionsStore = useConnectionsStore()
@@ -147,6 +148,17 @@ const recentActivities = ref([
               <UiButton class="w-full justify-start hover-lift" variant="outline">
                 <Database class="h-4 w-4 mr-2" />
                 Manage Connections
+              </UiButton>
+            </NuxtLink>
+            
+            <NuxtLink to="/explorer" class="block">
+              <UiButton 
+                class="w-full justify-start hover-lift" 
+                variant="outline"
+                :disabled="!connectionsStore.activeConnection"
+              >
+                <Search class="h-4 w-4 mr-2" />
+                Explore Data
               </UiButton>
             </NuxtLink>
             
