@@ -26,14 +26,14 @@ export const useTypeBrowser = () => {
     state.value.error = null
     
     try {
-      // Query to get schema information
+      // Query to get schema information using GraphQL endpoint
       const schemaQuery = `
         schema {
           type
         }
       `
       
-      const result = await dgraphClient.executeDQLQuery(schemaQuery)
+      const result = await dgraphClient.executeQuery(schemaQuery)
       
       if (result.success && result.data?.schema) {
         const schemaData = result.data.schema
