@@ -133,7 +133,7 @@ export const useTypeBrowser = () => {
         // Query to count nodes of this type
         const countQuery = `
           {
-            count(func: type(${type.name})) {
+            count(func: type("${type.name}")) {
               count(uid)
             }
           }
@@ -166,7 +166,7 @@ export const useTypeBrowser = () => {
   // Generate query to explore a specific type
   const generateTypeQuery = (typeName: string, limit = 10): string => {
     return `{
-  ${typeName.toLowerCase()}(func: type(${typeName}), first: ${limit}) {
+  ${typeName.toLowerCase()}(func: type("${typeName}"), first: ${limit}) {
     uid
     expand(_all_)
   }
@@ -176,7 +176,7 @@ export const useTypeBrowser = () => {
   // Generate query to count a specific type
   const generateCountQuery = (typeName: string): string => {
     return `{
-  count(func: type(${typeName})) {
+  count(func: type("${typeName}")) {
     count(uid)
   }
 }`
