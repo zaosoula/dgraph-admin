@@ -24,7 +24,38 @@ const saveToLocalStorage = (key: string, value: any): void => {
   try {
     localStorage.setItem(key, JSON.stringify(value))
   } catch (error) {
-    console.error(`Error saving value to ${key}:`, error)
+    if (error instanceof DOMException && error.name === 'QuotaExceededError') {
+      console.warn(`LocalStorage quota exceeded for ${key}, clearing to make space...`)
+      
+      // For connection states, try to save a minimal version
+      if (key === STORAGE_KEY_CONNECTION_STATES && typeof value === 'object') {
+        try {
+          // Create a minimal version with only essential data
+          const minimalStates: Record<string, any> = {}
+          Object.keys(value).forEach(connectionId => {
+            minimalStates[connectionId] = {
+              isConnected: value[connectionId]?.isConnected || false,
+              isLoading: false, // Reset loading states
+              error: value[connectionId]?.error || null,
+              lastChecked: value[connectionId]?.lastChecked || null
+              // Remove testResults to save space
+            }
+          })
+          localStorage.setItem(key, JSON.stringify(minimalStates))
+          console.log(`Successfully saved minimal version of ${key}`)
+        } catch (retryError) {
+          console.error(`Failed to save even minimal version of ${key}:`, retryError)
+          // As last resort, clear the key
+          localStorage.removeItem(key)
+        }
+      } else {
+        console.error(`Error saving value to ${key}:`, error)
+        // For other keys, just remove them if quota exceeded
+        localStorage.removeItem(key)
+      }
+    } else {
+      console.error(`Error saving value to ${key}:`, error)
+    }
   }
 }
 
@@ -33,6 +64,65 @@ export const useConnectionsStore = defineStore('connections', () => {
   const connections = ref<Connection[]>(safeParseJSON<Connection[]>(STORAGE_KEY_CONNECTIONS, []))
   const activeConnectionId = ref<string | null>(safeParseJSON<string | null>(STORAGE_KEY_ACTIVE_CONNECTION, null))
   const connectionStates = ref<Record<string, ConnectionState>>(safeParseJSON<Record<string, ConnectionState>>(STORAGE_KEY_CONNECTION_STATES, {}))
+
+  // Flag to prevent infinite loops during cleanup
+  const isCleaningUp = ref(false)
+
+  // Clean up localStorage on initialization if needed
+  const cleanupLocalStorage = () => {
+    if (isCleaningUp.value) return // Prevent recursive cleanup
+    
+    try {
+      isCleaningUp.value = true
+      
+      // Check localStorage usage
+      let totalSize = 0
+      for (let key in localStorage) {
+        if (localStorage.hasOwnProperty(key)) {
+          totalSize += localStorage[key].length
+        }
+      }
+      
+      // If we're using more than 3MB, clean up connection states
+      if (totalSize > 3 * 1024 * 1024) {
+        console.log('LocalStorage usage high, cleaning up connection states...')
+        const currentStates = connectionStates.value
+        const cleanedStates: Record<string, ConnectionState> = {}
+        
+        Object.keys(currentStates).forEach(connectionId => {
+          cleanedStates[connectionId] = {
+            isConnected: currentStates[connectionId]?.isConnected || false,
+            isLoading: false, // Reset loading states
+            error: currentStates[connectionId]?.error || null,
+            lastChecked: currentStates[connectionId]?.lastChecked || null
+            // Remove testResults to save space
+          }
+        })
+        
+        // Update the ref directly without triggering watchers
+        connectionStates.value = cleanedStates
+        
+        // Save directly to localStorage without going through saveToLocalStorage to avoid recursion
+        try {
+          localStorage.setItem(STORAGE_KEY_CONNECTION_STATES, JSON.stringify(cleanedStates))
+          console.log('Successfully cleaned up connection states')
+        } catch (error) {
+          console.error('Failed to save cleaned states:', error)
+          // As last resort, clear the key
+          localStorage.removeItem(STORAGE_KEY_CONNECTION_STATES)
+        }
+      }
+    } catch (error) {
+      console.warn('Error during localStorage cleanup:', error)
+    } finally {
+      isCleaningUp.value = false
+    }
+  }
+
+  // Run cleanup on initialization
+  if (process.client) {
+    cleanupLocalStorage()
+  }
 
   // Computed properties
   const activeConnection = computed(() => {
@@ -78,15 +168,21 @@ export const useConnectionsStore = defineStore('connections', () => {
 
   // Persist state to localStorage when it changes
   watch(connections, (newConnections) => {
-    saveToLocalStorage(STORAGE_KEY_CONNECTIONS, newConnections)
+    if (!isCleaningUp.value) {
+      saveToLocalStorage(STORAGE_KEY_CONNECTIONS, newConnections)
+    }
   }, { deep: true })
 
   watch(activeConnectionId, (newActiveConnectionId) => {
-    saveToLocalStorage(STORAGE_KEY_ACTIVE_CONNECTION, newActiveConnectionId)
+    if (!isCleaningUp.value) {
+      saveToLocalStorage(STORAGE_KEY_ACTIVE_CONNECTION, newActiveConnectionId)
+    }
   })
 
   watch(connectionStates, (newConnectionStates) => {
-    saveToLocalStorage(STORAGE_KEY_CONNECTION_STATES, newConnectionStates)
+    if (!isCleaningUp.value) {
+      saveToLocalStorage(STORAGE_KEY_CONNECTION_STATES, newConnectionStates)
+    }
   }, { deep: true })
 
   // Store actions
@@ -110,6 +206,21 @@ export const useConnectionsStore = defineStore('connections', () => {
       error: null,
       lastChecked: null
     }
+
+    // Log activity
+    if (process.client) {
+      import('@/composables/useActivityHistory').then(({ useActivityHistory }) => {
+        const { addActivity } = useActivityHistory()
+        addActivity({
+          type: 'connection_added',
+          action: 'Connection added',
+          connectionName: newConnection.name,
+          connectionId: id,
+          status: 'success',
+          details: `New ${newConnection.environment || 'untagged'} connection created`
+        })
+      })
+    }
     
     return id
   }
@@ -131,6 +242,7 @@ export const useConnectionsStore = defineStore('connections', () => {
     const index = connections.value.findIndex(conn => conn.id === id)
     if (index === -1) return false
     
+    const connectionToRemove = connections.value[index]
     connections.value.splice(index, 1)
     
     // Remove connection state
@@ -141,6 +253,21 @@ export const useConnectionsStore = defineStore('connections', () => {
     // If active connection is removed, set active to null
     if (activeConnectionId.value === id) {
       activeConnectionId.value = null
+    }
+
+    // Log activity
+    if (process.client) {
+      import('@/composables/useActivityHistory').then(({ useActivityHistory }) => {
+        const { addActivity } = useActivityHistory()
+        addActivity({
+          type: 'connection_removed',
+          action: 'Connection removed',
+          connectionName: connectionToRemove.name,
+          connectionId: id,
+          status: 'info',
+          details: `${connectionToRemove.environment || 'Untagged'} connection deleted`
+        })
+      })
     }
     
     return true
@@ -169,9 +296,22 @@ export const useConnectionsStore = defineStore('connections', () => {
       }
     }
     
+    // Clean up test results to prevent localStorage bloat
+    const cleanedState = { ...state }
+    if (cleanedState.testResults) {
+      // Keep only essential test result info
+      const testResults = cleanedState.testResults
+      cleanedState.testResults = {
+        overallSuccess: testResults.overallSuccess,
+        adminHealth: { success: testResults.adminHealth?.success || false },
+        adminSchemaRead: { success: testResults.adminSchemaRead?.success || false },
+        clientIntrospection: { success: testResults.clientIntrospection?.success || false }
+      }
+    }
+    
     connectionStates.value[id] = {
       ...connectionStates.value[id],
-      ...state
+      ...cleanedState
     }
   }
 
@@ -208,6 +348,96 @@ export const useConnectionsStore = defineStore('connections', () => {
     return updateConnection(devConnectionId, { linkedProductionId: undefined })
   }
 
+  // Bulk refresh state
+  const isRefreshingAll = ref(false)
+  const refreshProgress = ref(0)
+
+  // Refresh all connections
+  const refreshAllConnections = async () => {
+    if (connections.value.length === 0) return { success: 0, failed: 0, results: [] }
+
+    isRefreshingAll.value = true
+    refreshProgress.value = 0
+
+    const { useDgraphClient } = await import('@/composables/useDgraphClient')
+    const { useActivityHistory } = await import('@/composables/useActivityHistory')
+    
+    const { testConnection } = useDgraphClient()
+    const { addActivity } = useActivityHistory()
+
+    const results: Array<{ connection: Connection; success: boolean; error?: string }> = []
+    let completed = 0
+
+    // Test all connections in parallel
+    const testPromises = connections.value.map(async (connection) => {
+      try {
+        const success = await testConnection(connection)
+        const result = { connection, success }
+        
+        // Log activity
+        addActivity({
+          type: 'connection_test',
+          action: success ? 'Connection test passed' : 'Connection test failed',
+          connectionName: connection.name,
+          connectionId: connection.id,
+          status: success ? 'success' : 'error',
+          details: success ? 'Connection is healthy' : 'Connection failed health check'
+        })
+
+        results.push(result)
+        completed++
+        refreshProgress.value = Math.round((completed / connections.value.length) * 100)
+        
+        return result
+      } catch (error) {
+        const errorMessage = error instanceof Error ? error.message : String(error)
+        const result = { connection, success: false, error: errorMessage }
+        
+        // Log activity
+        addActivity({
+          type: 'connection_test',
+          action: 'Connection test failed',
+          connectionName: connection.name,
+          connectionId: connection.id,
+          status: 'error',
+          details: errorMessage,
+          error: errorMessage
+        })
+
+        results.push(result)
+        completed++
+        refreshProgress.value = Math.round((completed / connections.value.length) * 100)
+        
+        return result
+      }
+    })
+
+    await Promise.allSettled(testPromises)
+
+    isRefreshingAll.value = false
+    refreshProgress.value = 100
+
+    const successCount = results.filter(r => r.success).length
+    const failedCount = results.filter(r => !r.success).length
+
+    // Log summary activity
+    addActivity({
+      type: 'connection_test',
+      action: 'Bulk connection refresh completed',
+      connectionName: 'All Connections',
+      connectionId: 'bulk',
+      status: failedCount === 0 ? 'success' : failedCount === results.length ? 'error' : 'warning',
+      details: `${successCount} successful, ${failedCount} failed out of ${results.length} connections`
+    })
+
+    return {
+      success: successCount,
+      failed: failedCount,
+      total: results.length,
+      results
+    }
+  }
+
   return {
     connections,
     activeConnectionId,
@@ -217,12 +447,15 @@ export const useConnectionsStore = defineStore('connections', () => {
     connectionsByEnvironment,
     getLinkedProduction,
     productionConnections,
+    isRefreshingAll,
+    refreshProgress,
     addConnection,
     updateConnection,
     removeConnection,
     setActiveConnection,
     updateConnectionState,
     linkConnectionToProduction,
-    unlinkConnectionFromProduction
+    unlinkConnectionFromProduction,
+    refreshAllConnections
   }
 })

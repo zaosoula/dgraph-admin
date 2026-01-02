@@ -97,16 +97,51 @@ export const useDgraphClient = () => {
         lastChecked: new Date(),
         testResults
       })
+
+      // Log activity (only if not called from bulk refresh to avoid duplicate logging)
+      if (!connection) {
+        const { useActivityHistory } = await import('@/composables/useActivityHistory')
+        const { addActivity } = useActivityHistory()
+        
+        addActivity({
+          type: 'connection_test',
+          action: testResults.overallSuccess ? 'Connection test passed' : 'Connection test failed',
+          connectionName: connectionToTest.name,
+          connectionId: connectionToTest.id,
+          status: testResults.overallSuccess ? 'success' : 'error',
+          details: testResults.overallSuccess 
+            ? 'Connection is healthy' 
+            : getConnectionErrorMessage(testResults)
+        })
+      }
       
       return testResults.overallSuccess
     } catch (error) {
+      const errorMessage = error instanceof Error ? error.message : String(error)
+      
       // Update connection state with error
       connectionsStore.updateConnectionState(connectionToTest.id, {
         isConnected: false,
         isLoading: false,
-        error: error instanceof Error ? error.message : String(error),
+        error: errorMessage,
         lastChecked: new Date()
       })
+
+      // Log activity (only if not called from bulk refresh to avoid duplicate logging)
+      if (!connection) {
+        const { useActivityHistory } = await import('@/composables/useActivityHistory')
+        const { addActivity } = useActivityHistory()
+        
+        addActivity({
+          type: 'connection_test',
+          action: 'Connection test failed',
+          connectionName: connectionToTest.name,
+          connectionId: connectionToTest.id,
+          status: 'error',
+          details: errorMessage,
+          error: errorMessage
+        })
+      }
       
       return false
     }
