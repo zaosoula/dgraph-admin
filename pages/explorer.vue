@@ -1,114 +1,32 @@
 <script setup lang="ts">
 import { ref, computed } from "vue";
 import {
-  Search,
   Database,
-  BookOpen,
-  Lightbulb,
   AlertCircle,
 } from "lucide-vue-next";
 import { useConnectionsStore } from "@/stores/connections";
-import { useQueryExecution } from "@/composables/useQueryExecution";
-import type { ExampleQuery } from "@/types/explorer";
+import { useDgraphClient } from "@/composables/useDgraphClient";
+import type { QueryResult } from "@/types/explorer";
 
 // Stores and composables
 const connectionsStore = useConnectionsStore();
-const {
-  queryResults,
-  queryHistory,
-  isExecuting,
-  hasError,
-  errorMessage,
-  executeQueryWithHistory,
-  clearHistory,
-  removeHistoryItem,
-  clearResults,
-} = useQueryExecution();
+const dgraphClient = useDgraphClient();
 
 // Page metadata
 useHead({
-  title: "Data Explorer - Dgraph Admin",
+  title: "Visual Data Explorer - Dgraph Admin",
   meta: [
     {
       name: "description",
-      content: "Explore and query your Dgraph data with DQL",
+      content: "Visually explore your Dgraph data by browsing schema types",
     },
   ],
 });
 
 // Reactive state
-const currentQuery = ref("");
-const showExamples = ref(false);
-const historyCollapsed = ref(false);
-
-// Example queries
-const exampleQueries: ExampleQuery[] = [
-  {
-    id: "basic-1",
-    title: "Get All Nodes",
-    description: "Retrieve all nodes with their predicates",
-    category: "basic",
-    query: `{
-  all(func: has(dgraph.type)) {
-    uid
-    dgraph.type
-    expand(_all_)
-  }
-}`,
-  },
-  {
-    id: "basic-2",
-    title: "Get Schema",
-    description: "Query the current schema",
-    category: "basic",
-    query: `schema {
-  type
-  predicate
-  index
-}`,
-  },
-  {
-    id: "advanced-1",
-    title: "Filter by Type",
-    description: "Get nodes of a specific type",
-    category: "advanced",
-    query: `{
-  nodes(func: type(Person)) {
-    uid
-    name
-    age
-    email
-  }
-}`,
-  },
-  {
-    id: "advanced-2",
-    title: "Traverse Relationships",
-    description: "Follow edges between nodes",
-    category: "advanced",
-    query: `{
-  person(func: eq(name, "John")) {
-    uid
-    name
-    friends {
-      uid
-      name
-    }
-  }
-}`,
-  },
-  {
-    id: "aggregation-1",
-    title: "Count Nodes",
-    description: "Count nodes by type",
-    category: "aggregation",
-    query: `{
-  count(func: has(dgraph.type)) {
-    count(uid)
-  }
-}`,
-  },
-];
+const selectedType = ref<string | null>(null);
+const typeResults = ref<QueryResult | null>(null);
+const isLoadingData = ref(false);
 
 // Computed properties
 const hasActiveConnection = computed(() => !!connectionsStore.activeConnection);
@@ -119,58 +37,43 @@ const isConnected = computed(() => {
   return state?.isConnected || false;
 });
 
-const canExecuteQueries = computed(
+const canExploreData = computed(
   () => hasActiveConnection.value && isConnected.value
 );
 
-const groupedExamples = computed(() => {
-  const groups = {
-    basic: exampleQueries.filter((q) => q.category === "basic"),
-    advanced: exampleQueries.filter((q) => q.category === "advanced"),
-    aggregation: exampleQueries.filter((q) => q.category === "aggregation"),
-  };
-  return groups;
-});
-
 // Event handlers
-const handleExecuteQuery = async (query: string) => {
-  if (!canExecuteQueries.value) return;
-
+const handleSelectType = async (typeName: string, query: string) => {
+  if (!canExploreData.value) return;
+  
+  selectedType.value = typeName;
+  isLoadingData.value = true;
+  
   try {
-    await executeQueryWithHistory(query);
+    const startTime = Date.now();
+    const result = await dgraphClient.query(query);
+    const executionTime = Date.now() - startTime;
+    
+    if (result.success && result.data) {
+      // Count the results
+      const resultKey = Object.keys(result.data)[0];
+      const resultData = result.data[resultKey];
+      const rowCount = Array.isArray(resultData) ? resultData.length : 1;
+      
+      typeResults.value = {
+        data: result.data,
+        executionTime,
+        rowCount,
+        queryType: 'query'
+      };
+    } else {
+      typeResults.value = null;
+    }
   } catch (error) {
-    // Error is already handled in the composable
-    console.error("Query execution failed:", error);
+    console.error('Error loading type data:', error);
+    typeResults.value = null;
+  } finally {
+    isLoadingData.value = false;
   }
-};
-
-const handleLoadExample = (query: string) => {
-  currentQuery.value = query;
-  showExamples.value = false;
-};
-
-const handleSelectFromHistory = (query: string) => {
-  currentQuery.value = query;
-};
-
-const handleSelectType = (typeName: string, query: string) => {
-  currentQuery.value = query
-  // Optionally execute the query immediately
-  if (canExecuteQueries.value) {
-    handleExecuteQuery(query)
-  }
-}
-
-const handleClearQuery = () => {
-  currentQuery.value = "";
-};
-
-const handleShowHelp = () => {
-  showExamples.value = true;
-};
-
-const handleToggleHistory = () => {
-  historyCollapsed.value = !historyCollapsed.value;
 };
 </script>
 
@@ -182,29 +85,19 @@ const handleToggleHistory = () => {
         <h1
           class="text-4xl font-bold bg-gradient-to-r from-primary to-primary/60 bg-clip-text text-transparent"
         >
-          Data Explorer
+          Visual Data Explorer
         </h1>
         <p class="text-muted-foreground mt-2">
-          Query and explore your Dgraph data using DQL
+          Explore your Dgraph data by browsing schema types visually
         </p>
       </div>
 
       <div class="flex items-center space-x-3">
         <UiButton
+          v-if="typeResults"
           variant="outline"
           size="sm"
-          @click="showExamples = true"
-          class="hover-lift"
-        >
-          <BookOpen class="h-4 w-4 mr-2" />
-          Examples
-        </UiButton>
-
-        <UiButton
-          v-if="queryResults"
-          variant="outline"
-          size="sm"
-          @click="clearResults"
+          @click="typeResults = null; selectedType = null"
           class="hover-lift"
         >
           Clear Results
@@ -213,7 +106,7 @@ const handleToggleHistory = () => {
     </div>
 
     <!-- Connection Status -->
-    <div v-if="!canExecuteQueries" class="mb-6">
+    <div v-if="!canExploreData" class="mb-6">
       <UiCard class="border-orange-200 bg-orange-50">
         <UiCardContent class="pt-6">
           <div class="flex items-start space-x-3">
@@ -224,7 +117,7 @@ const handleToggleHistory = () => {
               </h4>
               <p class="text-sm text-orange-700">
                 <span v-if="!hasActiveConnection">
-                  Please select an active connection to execute queries.
+                  Please select an active connection to explore data.
                 </span>
                 <span v-else-if="!isConnected">
                   The selected connection is not active. Please check your
@@ -241,135 +134,48 @@ const handleToggleHistory = () => {
     </div>
 
     <!-- Main Content Grid -->
-    <div class="grid grid-cols-1 lg:grid-cols-4 gap-6">
-      <!-- Left Column: Query Editor and Results -->
-      <div class="lg:col-span-2 space-y-6">
-        <!-- Query Editor -->
-        <ExplorerQueryInput
-          v-model="currentQuery"
-          :is-executing="isExecuting"
-          :disabled="!canExecuteQueries"
-          @execute="handleExecuteQuery"
-          @clear="handleClearQuery"
-          @help="handleShowHelp"
-        />
-
-        <!-- Results Display -->
-        <ExplorerResultsDisplay
-          :result="queryResults"
-          :is-loading="isExecuting"
-        />
-      </div>
-      
-      <!-- Right Column: Type Browser and Query History -->
-      <div class="lg:col-span-2 space-y-6">
-        <!-- Schema Type Browser -->
+    <div class="grid grid-cols-1 lg:grid-cols-3 gap-6">
+      <!-- Left Column: Schema Type Browser -->
+      <div class="lg:col-span-1">
         <TypeBrowser
           @select-type="handleSelectType"
         />
-        
-        <!-- Query History -->
-        <QueryHistory
-          :history="queryHistory"
-          :is-collapsed="historyCollapsed"
-          @select-query="handleSelectFromHistory"
-          @remove-item="removeHistoryItem"
-          @clear-history="clearHistory"
-          @toggle-collapsed="handleToggleHistory"
-        />
       </div>
-    </div>
-
-    <!-- Examples Dialog -->
-    <UiDialog v-model:open="showExamples">
-      <UiDialogContent class="max-w-4xl max-h-[80vh] overflow-y-auto">
-        <UiDialogHeader>
-          <UiDialogTitle class="flex items-center space-x-2">
-            <Lightbulb class="h-5 w-5 text-primary" />
-            <span>DQL Query Examples</span>
-          </UiDialogTitle>
-          <UiDialogDescription>
-            Click on any example to load it into the query editor
-          </UiDialogDescription>
-        </UiDialogHeader>
-
-        <div class="space-y-6 mt-6">
-          <!-- Basic Queries -->
-          <div>
-            <h3 class="text-lg font-semibold mb-3 flex items-center space-x-2">
-              <Database class="h-4 w-4" />
-              <span>Basic Queries</span>
-            </h3>
-            <div class="grid grid-cols-1 md:grid-cols-2 gap-3">
-              <div
-                v-for="example in groupedExamples.basic"
-                :key="example.id"
-                class="p-4 border rounded-lg hover:bg-accent/50 cursor-pointer transition-colors"
-                @click="handleLoadExample(example.query)"
-              >
-                <h4 class="font-medium mb-1">{{ example.title }}</h4>
-                <p class="text-sm text-muted-foreground mb-2">
-                  {{ example.description }}
-                </p>
-                <pre
-                  class="text-xs bg-muted p-2 rounded overflow-x-auto"
-                ><code>{{ example.query.trim() }}</code></pre>
-              </div>
-            </div>
-          </div>
-
-          <!-- Advanced Queries -->
-          <div>
-            <h3 class="text-lg font-semibold mb-3 flex items-center space-x-2">
-              <Search class="h-4 w-4" />
-              <span>Advanced Queries</span>
-            </h3>
-            <div class="grid grid-cols-1 md:grid-cols-2 gap-3">
-              <div
-                v-for="example in groupedExamples.advanced"
-                :key="example.id"
-                class="p-4 border rounded-lg hover:bg-accent/50 cursor-pointer transition-colors"
-                @click="handleLoadExample(example.query)"
-              >
-                <h4 class="font-medium mb-1">{{ example.title }}</h4>
-                <p class="text-sm text-muted-foreground mb-2">
-                  {{ example.description }}
-                </p>
-                <pre
-                  class="text-xs bg-muted p-2 rounded overflow-x-auto"
-                ><code>{{ example.query.trim() }}</code></pre>
-              </div>
-            </div>
-          </div>
-
-          <!-- Aggregation Queries -->
-          <div>
-            <h3 class="text-lg font-semibold mb-3">Aggregation Queries</h3>
-            <div class="grid grid-cols-1 md:grid-cols-2 gap-3">
-              <div
-                v-for="example in groupedExamples.aggregation"
-                :key="example.id"
-                class="p-4 border rounded-lg hover:bg-accent/50 cursor-pointer transition-colors"
-                @click="handleLoadExample(example.query)"
-              >
-                <h4 class="font-medium mb-1">{{ example.title }}</h4>
-                <p class="text-sm text-muted-foreground mb-2">
-                  {{ example.description }}
-                </p>
-                <pre
-                  class="text-xs bg-muted p-2 rounded overflow-x-auto"
-                ><code>{{ example.query.trim() }}</code></pre>
-              </div>
-            </div>
+      
+      <!-- Right Column: Results Display -->
+      <div class="lg:col-span-2">
+        <!-- Selected Type Header -->
+        <div v-if="selectedType" class="mb-4">
+          <div class="flex items-center space-x-3">
+            <Database class="h-5 w-5 text-primary" />
+            <h2 class="text-xl font-semibold">{{ selectedType }}</h2>
+            <span v-if="typeResults" class="text-sm text-muted-foreground">
+              ({{ typeResults.rowCount }} records)
+            </span>
           </div>
         </div>
 
-        <UiDialogFooter class="mt-6">
-          <UiButton variant="outline" @click="showExamples = false">
-            Close
-          </UiButton>
-        </UiDialogFooter>
-      </UiDialogContent>
-    </UiDialog>
+        <!-- Results Display -->
+        <ResultsDisplay
+          :result="typeResults"
+          :is-loading="isLoadingData"
+        />
+        
+        <!-- Empty State -->
+        <div v-if="!selectedType && !isLoadingData" class="text-center py-12">
+          <div class="w-16 h-16 rounded-full bg-muted flex items-center justify-center mx-auto mb-4">
+            <Database class="h-8 w-8 text-muted-foreground" />
+          </div>
+          <h3 class="text-lg font-medium text-foreground mb-2">
+            Select a Type to Explore
+          </h3>
+          <p class="text-muted-foreground max-w-md mx-auto">
+            Choose a schema type from the left panel to view its data. 
+            Click on any type to see sample records and explore your data visually.
+          </p>
+        </div>
+      </div>
+    </div>
+
   </div>
 </template>
