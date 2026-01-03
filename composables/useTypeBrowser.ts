@@ -95,10 +95,21 @@ export const useTypeBrowser = () => {
       const result = await dgraphClient.executeDQLQuery(typeQuery)
       console.log('DQL query result:', result)
       
-      if (result.success && result.data?.types) {
+      if (result.success && result.data) {
+        console.log('Checking data structure - result.data:', result.data)
+        console.log('result.data.types exists?', !!result.data.types)
+        console.log('result.data.data exists?', !!result.data.data)
+        console.log('result.data.data?.types exists?', !!result.data.data?.types)
+        
+        // Try to find the types array in the response
+        const typesArray = result.data.types || result.data.data?.types || result.data
+        console.log('Using types array:', typesArray)
+        
+        if (typesArray && Array.isArray(typesArray)) {
+        console.log('First few items:', typesArray.slice(0, 5))
         const typeNames = new Set<string>()
         
-        result.data.types.forEach((item: any) => {
+        typesArray.forEach((item: any) => {
           if (item['dgraph.type']) {
             if (Array.isArray(item['dgraph.type'])) {
               item['dgraph.type'].forEach((type: string) => typeNames.add(type))
@@ -117,6 +128,9 @@ export const useTypeBrowser = () => {
         console.log('Setting types from data:', types)
         state.value.types = types
         await loadTypeCounts()
+        } else {
+          console.log('No valid types array found in response')
+        }
       }
     } catch (err) {
       console.error('Error loading types from data:', err)
