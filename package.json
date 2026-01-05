@@ -38,7 +38,7 @@
   "devDependencies": {
     "@nuxt/devtools": "latest",
     "@nuxtjs/tailwindcss": "7.0.0-beta.0",
-    "@pinia/nuxt": "^0.5.1",
+    "@pinia/nuxt": "^0.11.3",
     "@types/crypto-js": "^4.2.1",
     "@types/d3": "^7",
     "@types/diff": "^5.0.8",
