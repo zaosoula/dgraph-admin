@@ -3,6 +3,7 @@ import { ref, computed, watch } from "vue";
 import {
   useSchemaPromotion,
   type SchemaComparisonResult,
+  type SchemaDifference,
 } from "@/composables/useSchemaPromotion";
 import { useConnectionsStore } from "@/stores/connections";
 import type { Connection } from "@/types/connection";
@@ -32,6 +33,42 @@ const prodConnection = computed(() => {
 
 const canProceed = computed(() => {
   return comparisonResult.value && prodConnection.value && !isPromoting.value;
+});
+
+// Group differences by type for better display
+const groupedDifferences = computed(() => {
+  if (!comparisonResult.value?.enhancedDifferences) return {};
+  
+  const groups: Record<string, { typeKind: string; changes: SchemaDifference[] }> = {};
+  
+  comparisonResult.value.enhancedDifferences.forEach(diff => {
+    if (diff.context) {
+      const key = `${diff.context.typeKind}_${diff.context.typeName}`;
+      if (!groups[key]) {
+        groups[key] = {
+          typeKind: diff.context.typeKind,
+          changes: []
+        };
+      }
+      groups[key].changes.push(diff);
+    }
+  });
+  
+  // Convert to display format with type names as keys
+  const result: Record<string, { typeKind: string; changes: SchemaDifference[] }> = {};
+  Object.entries(groups).forEach(([key, group]) => {
+    const typeName = key.split('_').slice(1).join('_'); // Remove typeKind prefix
+    result[typeName] = group;
+  });
+  
+  return result;
+});
+
+// Get differences without context (ungrouped)
+const ungroupedDifferences = computed(() => {
+  if (!comparisonResult.value?.enhancedDifferences) return [];
+  
+  return comparisonResult.value.enhancedDifferences.filter(diff => !diff.context);
 });
 
 // Compare schemas when dialog opens
@@ -229,9 +266,100 @@ watch(
               </p>
             </div>
 
-            <!-- Differences List -->
+            <!-- Enhanced Differences List -->
             <div
-              v-if="comparisonResult.differences"
+              v-if="comparisonResult.enhancedDifferences"
+              class="bg-gray-50 border rounded-md p-4"
+            >
+              <h4 class="font-medium text-sm mb-2">Changes:</h4>
+              <div class="space-y-4 text-sm max-h-60 overflow-auto">
+                <div
+                  v-for="(group, typeName) in groupedDifferences"
+                  :key="typeName"
+                  class="bg-white border rounded-md p-3"
+                >
+                  <!-- Type Header -->
+                  <div class="flex items-center space-x-2 mb-2">
+                    <span
+                      class="inline-flex items-center px-2 py-1 rounded text-xs font-medium bg-blue-100 text-blue-800"
+                    >
+                      {{ group.typeKind }}
+                    </span>
+                    <span class="font-mono font-medium text-gray-900">{{ typeName }}</span>
+                    <span class="text-gray-500">{</span>
+                  </div>
+                  
+                  <!-- Changes within this type -->
+                  <div class="ml-4 space-y-1 font-mono text-sm">
+                    <div
+                      v-for="(diff, index) in group.changes"
+                      :key="index"
+                      class="flex items-start space-x-2"
+                    >
+                      <span
+                        class="inline-flex items-center justify-center w-4 h-4 rounded text-xs font-bold flex-shrink-0 mt-0.5"
+                        :class="{
+                          'bg-green-100 text-green-700': diff.type === 'added',
+                          'bg-red-100 text-red-700': diff.type === 'removed',
+                        }"
+                      >
+                        {{ diff.type === 'added' ? '+' : '-' }}
+                      </span>
+                      <span
+                        class="break-all"
+                        :class="{
+                          'text-green-700': diff.type === 'added',
+                          'text-red-700': diff.type === 'removed',
+                        }"
+                      >
+                        {{ diff.line }}
+                      </span>
+                    </div>
+                  </div>
+                  
+                  <!-- Closing brace -->
+                  <div class="text-gray-500 mt-2">}</div>
+                </div>
+                
+                <!-- Ungrouped changes (without context) -->
+                <div
+                  v-if="ungroupedDifferences.length > 0"
+                  class="bg-white border rounded-md p-3"
+                >
+                  <div class="text-sm font-medium text-gray-700 mb-2">Other Changes:</div>
+                  <div class="space-y-1 font-mono text-sm">
+                    <div
+                      v-for="(diff, index) in ungroupedDifferences"
+                      :key="index"
+                      class="flex items-start space-x-2"
+                    >
+                      <span
+                        class="inline-flex items-center justify-center w-4 h-4 rounded text-xs font-bold flex-shrink-0 mt-0.5"
+                        :class="{
+                          'bg-green-100 text-green-700': diff.type === 'added',
+                          'bg-red-100 text-red-700': diff.type === 'removed',
+                        }"
+                      >
+                        {{ diff.type === 'added' ? '+' : '-' }}
+                      </span>
+                      <span
+                        class="break-all"
+                        :class="{
+                          'text-green-700': diff.type === 'added',
+                          'text-red-700': diff.type === 'removed',
+                        }"
+                      >
+                        {{ diff.line }}
+                      </span>
+                    </div>
+                  </div>
+                </div>
+              </div>
+            </div>
+
+            <!-- Fallback to Basic Differences List -->
+            <div
+              v-else-if="comparisonResult.differences"
               class="bg-gray-50 border rounded-md p-4"
             >
               <h4 class="font-medium text-sm mb-2">Changes:</h4>

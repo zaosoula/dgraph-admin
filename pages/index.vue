@@ -3,6 +3,7 @@ import { ref, computed } from 'vue'
 import { useConnectionsStore } from '@/stores/connections'
 import { useActivityHistory } from '@/composables/useActivityHistory'
 import { useSchemaSyncStatus } from '@/composables/useSchemaSyncStatus'
+import type { Connection } from '@/types/connection'
 import { 
   Database, 
   Activity, 
@@ -22,7 +23,11 @@ import {
 
 const connectionsStore = useConnectionsStore()
 const { getRecentActivities, formatRelativeTime, getActivityColor } = useActivityHistory()
-const { syncSummary, checkAllSyncStatuses, isCheckingAll } = useSchemaSyncStatus()
+const { syncSummary, checkAllSyncStatuses, isCheckingAll, getSyncStatus } = useSchemaSyncStatus()
+
+// Modal state for schema promotion
+const isPromoteDialogOpen = ref(false)
+const selectedConnectionForPromotion = ref<Connection | null>(null)
 
 useHead({
   title: 'Dgraph Admin - Dashboard',
@@ -65,6 +70,18 @@ const handleRefreshAll = async () => {
 
 // Recent activities from activity history
 const recentActivities = computed(() => getRecentActivities.value(6))
+
+// Handle opening promote modal
+const handleOpenPromoteModal = (connection: Connection) => {
+  selectedConnectionForPromotion.value = connection
+  isPromoteDialogOpen.value = true
+}
+
+// Handle promotion success
+const handlePromotionSuccess = () => {
+  // Refresh sync statuses after successful promotion
+  checkAllSyncStatuses()
+}
 </script>
 
 <template>
@@ -214,29 +231,41 @@ const recentActivities = computed(() => getRecentActivities.value(6))
                 <!-- Sync Status -->
                 <div class="flex items-center space-x-1">
                   <CheckCircle 
-                    v-if="syncSummary.synced > 0" 
+                    v-if="getSyncStatus(connection.id)?.hasDifferences === false" 
                     class="h-4 w-4 text-green-500" 
                   />
                   <AlertTriangle 
-                    v-else-if="syncSummary.withDifferences > 0" 
+                    v-else-if="getSyncStatus(connection.id)?.hasDifferences === true" 
                     class="h-4 w-4 text-yellow-500" 
+                  />
+                  <RefreshCw 
+                    v-else-if="getSyncStatus(connection.id)?.isChecking" 
+                    class="h-4 w-4 text-blue-500 animate-spin" 
                   />
                   <Info 
                     v-else 
                     class="h-4 w-4 text-muted-foreground" 
                   />
                   <span class="text-sm text-muted-foreground">
-                    {{ syncSummary.synced > 0 ? 'Synced' : syncSummary.withDifferences > 0 ? 'Needs promotion' : 'Unknown' }}
+                    {{ 
+                      getSyncStatus(connection.id)?.hasDifferences === false ? 'Synced' : 
+                      getSyncStatus(connection.id)?.hasDifferences === true ? 'Needs promotion' : 
+                      getSyncStatus(connection.id)?.isChecking ? 'Checking...' :
+                      'Unknown' 
+                    }}
                   </span>
                 </div>
                 
                 <!-- Action Button -->
-                <NuxtLink :to="`/connections/${connection.id}/promote`">
-                  <UiButton variant="outline" size="sm">
-                    <GitBranch class="h-4 w-4 mr-1" />
-                    Promote
-                  </UiButton>
-                </NuxtLink>
+                <UiButton 
+                  variant="outline" 
+                  size="sm"
+                  @click="handleOpenPromoteModal(connection)"
+                  :disabled="getSyncStatus(connection.id)?.isChecking"
+                >
+                  <GitBranch class="h-4 w-4 mr-1" />
+                  Promote
+                </UiButton>
               </div>
             </div>
             
@@ -389,5 +418,14 @@ const recentActivities = computed(() => getRecentActivities.value(6))
         </UiCardContent>
       </UiCard>
     </div>
+
+    <!-- Schema Promotion Dialog -->
+    <ConnectionSchemaPromotionDialog
+      v-if="selectedConnectionForPromotion"
+      :open="isPromoteDialogOpen"
+      :dev-connection="selectedConnectionForPromotion"
+      @update:open="isPromoteDialogOpen = $event"
+      @promotion-success="handlePromotionSuccess"
+    />
   </div>
 </template>
