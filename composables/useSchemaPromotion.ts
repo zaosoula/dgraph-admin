@@ -3,11 +3,22 @@ import { useDgraphClient } from '@/composables/useDgraphClient'
 import { useConnectionsStore } from '@/stores/connections'
 import type { Connection } from '@/types/connection'
 
+export type SchemaDifference = {
+  type: 'added' | 'removed'
+  line: string
+  context?: {
+    typeName: string
+    typeKind: 'type' | 'enum' | 'directive' | 'scalar'
+    fieldName?: string
+  }
+}
+
 export type SchemaComparisonResult = {
   devSchema: string
   prodSchema: string
   hasDifferences: boolean
   differences?: string[]
+  enhancedDifferences?: SchemaDifference[]
 }
 
 export type PromotionResult = {
@@ -20,6 +31,122 @@ export const useSchemaPromotion = () => {
   const connectionsStore = useConnectionsStore()
   const isPromoting = ref(false)
   const isComparing = ref(false)
+
+  // Helper function to parse schema and extract type/enum context
+  const parseSchemaContext = (schema: string): Map<number, { typeName: string; typeKind: 'type' | 'enum' | 'directive' | 'scalar'; fieldName?: string }> => {
+    const lines = schema.split('\n')
+    const contextMap = new Map()
+    let currentType: string | null = null
+    let currentTypeKind: 'type' | 'enum' | 'directive' | 'scalar' | null = null
+
+    lines.forEach((line, index) => {
+      const trimmedLine = line.trim()
+      
+      // Check for type definitions
+      const typeMatch = trimmedLine.match(/^type\s+(\w+)/)
+      if (typeMatch) {
+        currentType = typeMatch[1]
+        currentTypeKind = 'type'
+        contextMap.set(index, { typeName: currentType, typeKind: currentTypeKind })
+        return
+      }
+
+      // Check for enum definitions
+      const enumMatch = trimmedLine.match(/^enum\s+(\w+)/)
+      if (enumMatch) {
+        currentType = enumMatch[1]
+        currentTypeKind = 'enum'
+        contextMap.set(index, { typeName: currentType, typeKind: currentTypeKind })
+        return
+      }
+
+      // Check for directive definitions
+      const directiveMatch = trimmedLine.match(/^directive\s+@(\w+)/)
+      if (directiveMatch) {
+        currentType = directiveMatch[1]
+        currentTypeKind = 'directive'
+        contextMap.set(index, { typeName: currentType, typeKind: currentTypeKind })
+        return
+      }
+
+      // Check for scalar definitions
+      const scalarMatch = trimmedLine.match(/^scalar\s+(\w+)/)
+      if (scalarMatch) {
+        currentType = scalarMatch[1]
+        currentTypeKind = 'scalar'
+        contextMap.set(index, { typeName: currentType, typeKind: currentTypeKind })
+        return
+      }
+
+      // If we're inside a type/enum and this line contains a field
+      if (currentType && currentTypeKind && trimmedLine && !trimmedLine.startsWith('}')) {
+        let fieldName: string | undefined
+
+        if (currentTypeKind === 'type') {
+          // For types, extract field name (e.g., "name: String" -> "name")
+          const fieldMatch = trimmedLine.match(/^(\w+)\s*:/)
+          if (fieldMatch) {
+            fieldName = fieldMatch[1]
+          }
+        } else if (currentTypeKind === 'enum') {
+          // For enums, the whole line is usually the enum value
+          if (trimmedLine.match(/^\w+$/)) {
+            fieldName = trimmedLine
+          }
+        }
+
+        contextMap.set(index, { 
+          typeName: currentType, 
+          typeKind: currentTypeKind,
+          fieldName 
+        })
+      }
+
+      // Reset when we encounter a closing brace
+      if (trimmedLine === '}') {
+        currentType = null
+        currentTypeKind = null
+      }
+    })
+
+    return contextMap
+  }
+
+  // Enhanced diff function that includes context
+  const createEnhancedDifferences = (devSchema: string, prodSchema: string): SchemaDifference[] => {
+    const devLines = devSchema.split('\n').filter(line => line.trim())
+    const prodLines = prodSchema.split('\n').filter(line => line.trim())
+    const devContext = parseSchemaContext(devSchema)
+    const prodContext = parseSchemaContext(prodSchema)
+    
+    const differences: SchemaDifference[] = []
+
+    // Find lines in dev but not in prod (added)
+    devLines.forEach((line, index) => {
+      if (!prodLines.includes(line)) {
+        const context = devContext.get(index)
+        differences.push({
+          type: 'added',
+          line: line.trim(),
+          context
+        })
+      }
+    })
+
+    // Find lines in prod but not in dev (removed)
+    prodLines.forEach((line, index) => {
+      if (!devLines.includes(line)) {
+        const context = prodContext.get(index)
+        differences.push({
+          type: 'removed',
+          line: line.trim(),
+          context
+        })
+      }
+    })
+
+    return differences
+  }
 
   // Compare schemas between dev and production connections
   const compareSchemas = async (devConnection: Connection, prodConnection: Connection): Promise<SchemaComparisonResult | null> => {
@@ -61,8 +188,13 @@ export const useSchemaPromotion = () => {
       const hasDifferences = devSchema.trim() !== prodSchema.trim()
       
       const differences: string[] = []
+      let enhancedDifferences: SchemaDifference[] = []
+      
       if (hasDifferences) {
-        // Basic diff - split by lines and find differences
+        // Create enhanced differences with context
+        enhancedDifferences = createEnhancedDifferences(devSchema, prodSchema)
+        
+        // Also create basic diff for backward compatibility
         const devLines = devSchema.split('\n').filter(line => line.trim())
         const prodLines = prodSchema.split('\n').filter(line => line.trim())
         
@@ -85,7 +217,8 @@ export const useSchemaPromotion = () => {
         devSchema,
         prodSchema,
         hasDifferences,
-        differences: differences.length > 0 ? differences : undefined
+        differences: differences.length > 0 ? differences : undefined,
+        enhancedDifferences: enhancedDifferences.length > 0 ? enhancedDifferences : undefined
       }
 
       // Log activity

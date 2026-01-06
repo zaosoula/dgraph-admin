@@ -3,6 +3,7 @@ import { ref, computed, watch } from "vue";
 import {
   useSchemaPromotion,
   type SchemaComparisonResult,
+  type SchemaDifference,
 } from "@/composables/useSchemaPromotion";
 import { useConnectionsStore } from "@/stores/connections";
 import type { Connection } from "@/types/connection";
@@ -229,9 +230,59 @@ watch(
               </p>
             </div>
 
-            <!-- Differences List -->
+            <!-- Enhanced Differences List -->
             <div
-              v-if="comparisonResult.differences"
+              v-if="comparisonResult.enhancedDifferences"
+              class="bg-gray-50 border rounded-md p-4"
+            >
+              <h4 class="font-medium text-sm mb-2">Changes:</h4>
+              <div class="space-y-2 text-sm max-h-40 overflow-auto">
+                <div
+                  v-for="(diff, index) in comparisonResult.enhancedDifferences"
+                  :key="index"
+                  class="p-2 rounded border-l-4"
+                  :class="{
+                    'bg-green-50 border-l-green-500': diff.type === 'added',
+                    'bg-red-50 border-l-red-500': diff.type === 'removed',
+                  }"
+                >
+                  <div class="flex items-start space-x-2">
+                    <span
+                      class="inline-flex items-center px-1.5 py-0.5 rounded text-xs font-medium"
+                      :class="{
+                        'bg-green-100 text-green-800': diff.type === 'added',
+                        'bg-red-100 text-red-800': diff.type === 'removed',
+                      }"
+                    >
+                      {{ diff.type === 'added' ? '+' : '-' }}
+                    </span>
+                    <div class="flex-1 min-w-0">
+                      <div class="font-mono text-sm break-all">{{ diff.line }}</div>
+                      <div
+                        v-if="diff.context"
+                        class="text-xs text-muted-foreground mt-1"
+                      >
+                        <span class="inline-flex items-center space-x-1">
+                          <span
+                            class="inline-flex items-center px-1.5 py-0.5 rounded text-xs font-medium bg-blue-100 text-blue-800"
+                          >
+                            {{ diff.context.typeKind }}
+                          </span>
+                          <span class="font-medium">{{ diff.context.typeName }}</span>
+                          <span v-if="diff.context.fieldName" class="text-muted-foreground">
+                            → {{ diff.context.fieldName }}
+                          </span>
+                        </span>
+                      </div>
+                    </div>
+                  </div>
+                </div>
+              </div>
+            </div>
+
+            <!-- Fallback to Basic Differences List -->
+            <div
+              v-else-if="comparisonResult.differences"
               class="bg-gray-50 border rounded-md p-4"
             >
               <h4 class="font-medium text-sm mb-2">Changes:</h4>
