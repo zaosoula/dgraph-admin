@@ -1,5 +1,5 @@
 <script setup lang="ts">
-import { ref, onMounted, watch, nextTick } from 'vue'
+import { ref, onMounted, watch, nextTick, computed } from 'vue'
 import { buildSchema, GraphQLSchema } from 'graphql'
 import { useDgraphClient } from '@/composables/useDgraphClient'
 import { useConnectionsStore } from '@/stores/connections'
@@ -16,15 +16,24 @@ const isLoading = ref(false)
 const error = ref<string | null>(null)
 const schemaText = ref<string>('')
 const containerRef = ref<HTMLDivElement | null>(null)
+const focusedNodeId = ref<string | null>(null)
+const maxDepth = ref(1) // Maximum depth for relationships when in focus mode
 
 // Graph data structure
+type GraphField = {
+  name: string
+  type: string
+}
+
 type GraphNode = {
   id: string
   name: string
   kind: string
-  fields?: string[]
+  fields?: GraphField[]
   description?: string
   directives?: string[]
+  possibleTypes?: string[]  // For UnionType nodes
+  enumValues?: string[]     // For EnumType nodes
 }
 
 type GraphLink = {
@@ -72,6 +81,23 @@ const stripDirectives = (schema: string): string => {
     console.error('Error preprocessing schema:', err)
     return schema
   }
+}
+
+// Format field type to be more readable
+const formatFieldType = (typeStr: string): string => {
+  // Make the type more compact by removing unnecessary details
+  let formatted = typeStr
+    // Remove GraphQL prefixes if present
+    .replace(/GraphQL(Object|Scalar|Interface|Union|Enum|List|NonNull)Type/g, '')
+    // Keep only the core type name for clarity
+    .replace(/^[^A-Za-z]+|[^A-Za-z0-9\[\]!]+$/g, '')
+  
+  // Limit the length to prevent overly long type names
+  if (formatted.length > 25) {
+    formatted = formatted.substring(0, 22) + '...'
+  }
+  
+  return formatted
 }
 
 // Extract directives from a type definition
@@ -166,6 +192,9 @@ const processSchema = () => {
       // Skip common scalar types
       if (['String', 'Int', 'Float', 'Boolean', 'ID'].includes(typeName)) return
       
+      // Skip all ScalarType nodes as requested
+      if (type.constructor.name === 'GraphQLScalarType') return
+      
       // Create node for each type
       const node: GraphNode = {
         id: typeName,
@@ -178,21 +207,50 @@ const processSchema = () => {
       // Add fields if available
       if ('getFields' in type && typeof type.getFields === 'function') {
         const fields = type.getFields()
-        node.fields = Object.keys(fields)
-        
-        // Create links for field relationships
+        node.fields = Object.entries(fields).map(([fieldName, field]) => {
+          // Extract the field type as a string
+          let fieldTypeStr = field.type.toString()
+          
+          // Store the original field type string for display
+          return {
+            name: fieldName,
+            type: fieldTypeStr
+          }
+        })
+      }
+      
+      // Add possible types for UnionType
+      if (type.constructor.name === 'GraphQLUnionType' && 'getTypes' in type && typeof type.getTypes === 'function') {
+        const possibleTypes = type.getTypes()
+        node.possibleTypes = possibleTypes.map(t => t.name)
+      }
+      
+      // Add enum values for EnumType
+      if (type.constructor.name === 'GraphQLEnumType' && 'getValues' in type && typeof type.getValues === 'function') {
+        const enumValues = type.getValues()
+        node.enumValues = enumValues.map(v => v.name)
+      }
+      
+      // Create links for field relationships if fields exist
+      if ('getFields' in type && typeof type.getFields === 'function') {
+        const fields = type.getFields()
         Object.values(fields).forEach(field => {
           let fieldType = field.type.toString()
           
-          // Remove brackets and exclamation marks
-          fieldType = fieldType.replace(/[[\]!]/g, '')
+          // Remove brackets and exclamation marks for link target
+          const cleanFieldType = fieldType.replace(/[[\]!]/g, '')
           
-          // Skip scalar types and built-in types for links
-          if (!fieldType.startsWith('__') && 
-              !['String', 'Int', 'Float', 'Boolean', 'ID'].includes(fieldType)) {
+          // Skip scalar types, built-in types, and any type that's not in our node list
+          if (!cleanFieldType.startsWith('__') && 
+              !['String', 'Int', 'Float', 'Boolean', 'ID'].includes(cleanFieldType) &&
+              // Skip if the target is a scalar type (like DateTime)
+              !(typeMap[cleanFieldType] && typeMap[cleanFieldType].constructor.name === 'GraphQLScalarType')) {
+            
+            // Only create links to nodes that will exist in our graph
+            // We'll collect all links first, then filter them later to ensure all targets exist
             graphData.links.push({
               source: typeName,
-              target: fieldType,
+              target: cleanFieldType,
               relationship: field.name
             })
           }
@@ -200,6 +258,14 @@ const processSchema = () => {
       }
       
       graphData.nodes.push(node)
+    })
+    
+    // Create a set of node IDs for quick lookup
+    const nodeIds = new Set(graphData.nodes.map(node => node.id))
+    
+    // Filter links to ensure all targets exist in our node list
+    graphData.links = graphData.links.filter(link => {
+      return nodeIds.has(link.target)
     })
     
     nextTick(() => {
@@ -212,13 +278,33 @@ const processSchema = () => {
 }
 
 // Render the graph using D3.js
-const renderGraph = (data: GraphData) => {
+const renderGraph = (data: GraphData, wasInFocusMode = false) => {
   if (!containerRef.value) {
     console.error('Container reference is null, cannot render graph')
     return
   }
   
+  // If we're exiting focus mode, log this for debugging
+  if (wasInFocusMode) {
+    console.log('Exiting focus mode - performing complete graph reset')
+  }
+  
   try {
+    // Validate data before rendering
+    if (!data.nodes || !data.links) {
+      error.value = 'Invalid graph data: missing nodes or links'
+      return
+    }
+    
+    // Ensure all link sources and targets exist in the nodes
+    const nodeIds = new Set(data.nodes.map(node => node.id))
+    const invalidLinks = data.links.filter(link => !nodeIds.has(link.source) || !nodeIds.has(link.target))
+    
+    if (invalidLinks.length > 0) {
+      console.warn('Found invalid links with missing source or target nodes:', invalidLinks)
+      // Filter out invalid links
+      data.links = data.links.filter(link => nodeIds.has(link.source) && nodeIds.has(link.target))
+    }
     // Clear previous graph
     d3.select(containerRef.value).selectAll('*').remove()
     
@@ -233,6 +319,46 @@ const renderGraph = (data: GraphData) => {
       return
     }
     
+    // Apply focus mode filtering if a node is focused
+    let filteredData = { ...data }
+    let nodeDistances: Map<string, number> | null = null
+    
+    if (focusedNodeId.value) {
+      nodeDistances = calculateNodeDistances(data, focusedNodeId.value)
+      
+      // First, ensure the focused node is included
+      const focusedNode = data.nodes.find(node => node.id === focusedNodeId.value)
+      if (!focusedNode) {
+        console.error('Focused node not found in original data:', focusedNodeId.value)
+        // If the focused node doesn't exist in the original data, clear the focus
+        focusedNodeId.value = null
+      } else {
+        // Filter nodes based on distance from focused node
+        const filteredNodes = data.nodes.filter(node => {
+          // Always include the focused node
+          if (node.id === focusedNodeId.value) return true
+          
+          // Include nodes within the specified depth
+          const distance = nodeDistances.get(node.id) || Infinity
+          return distance <= maxDepth.value
+        })
+        
+        // Filter links based on the filtered nodes
+        const filteredLinks = data.links.filter(link => {
+          const sourceId = typeof link.source === 'string' ? link.source : link.source.id
+          const targetId = typeof link.target === 'string' ? link.target : link.target.id
+          
+          return filteredNodes.some(n => n.id === sourceId) && 
+                 filteredNodes.some(n => n.id === targetId)
+        })
+        
+        filteredData = {
+          nodes: filteredNodes,
+          links: filteredLinks
+        }
+      }
+    }
+    
     const width = containerRef.value.clientWidth || 800
     const height = 600
     
@@ -243,6 +369,80 @@ const renderGraph = (data: GraphData) => {
       .attr('height', height)
       .attr('viewBox', [0, 0, width, height])
       .attr('style', 'max-width: 100%; height: auto;')
+      .on('click', () => {
+        // Clear focus when clicking on the background
+        if (focusedNodeId.value) {
+          console.log('Background click: Exiting focus mode with radical solution')
+          
+          // Clear focus node ID
+          focusedNodeId.value = null
+          
+          // Stop the current simulation completely
+          if (simulation) {
+            simulation.stop()
+          }
+          
+          // Create a completely fresh copy of the data to break any references
+          const freshData = {
+            nodes: JSON.parse(JSON.stringify(data.nodes)).map((node: any) => {
+              // Create completely fresh node objects with no position data
+              return {
+                ...node,
+                x: undefined,
+                y: undefined,
+                vx: undefined,
+                vy: undefined,
+                fx: undefined,
+                fy: undefined,
+                index: undefined
+              }
+            }),
+            links: JSON.parse(JSON.stringify(data.links))
+          }
+          
+          // Properly clean up D3 resources before DOM manipulation
+          if (simulation) {
+            // Stop the simulation to prevent any ongoing ticks
+            simulation.stop()
+            
+            // Remove all forces to prevent any references to DOM elements
+            simulation.force('link', null)
+            simulation.force('charge', null)
+            simulation.force('center', null)
+            simulation.force('collision', null)
+            simulation.force('x', null)
+            simulation.force('y', null)
+            
+            // Clear nodes to prevent any references
+            simulation.nodes([])
+            
+            console.log('Stopped and cleared simulation')
+          }
+          
+          // Safely clear the DOM with proper cleanup
+          if (containerRef.value) {
+            try {
+              // First remove event listeners
+              d3.select(containerRef.value).selectAll('*').on('.', null)
+              
+              // Then clear the DOM
+              d3.select(containerRef.value).selectAll('*').remove()
+              console.log('Cleared all DOM elements and event handlers')
+              
+              // Render with completely fresh data and special flag
+              // Use requestAnimationFrame to ensure browser has processed DOM changes
+              window.requestAnimationFrame(() => {
+                console.log('Re-rendering with fresh data')
+                renderGraph(freshData, true)
+              })
+            } catch (err) {
+              console.error('Error during cleanup:', err)
+              // Fallback rendering if cleanup fails
+              renderGraph(freshData, true)
+            }
+          }
+        }
+      })
     
     // Create zoom behavior
     const zoom = d3.zoom()
@@ -256,22 +456,94 @@ const renderGraph = (data: GraphData) => {
     // Create container for the graph
     const g = svg.append('g')
     
-    // Improved force simulation with better parameters
-    const simulation = d3.forceSimulation(data.nodes as any)
-      .force('link', d3.forceLink(data.links as any)
+    // Determine if we need extra strong forces (when exiting focus mode or not in focus mode)
+    const needsStrongForces = wasInFocusMode || !focusedNodeId.value
+    
+    // Configure force parameters based on mode
+    const chargeStrength = wasInFocusMode ? -3000 : (focusedNodeId.value ? -800 : -2000)
+    const linkDistance = wasInFocusMode ? 300 : (focusedNodeId.value ? 200 : 250)
+    const collisionRadius = wasInFocusMode ? 150 : (focusedNodeId.value ? 100 : 120)
+    const centerStrength = wasInFocusMode ? 0.3 : (focusedNodeId.value ? 0.1 : 0.2)
+    
+    // If we're exiting focus mode, initialize nodes in a circle layout
+    if (wasInFocusMode) {
+      console.log('Initializing nodes in a circle layout')
+      const radius = Math.min(width, height) * 0.4
+      filteredData.nodes.forEach((node: any, i: number) => {
+        // Distribute nodes evenly in a circle
+        const angle = (i / filteredData.nodes.length) * 2 * Math.PI
+        node.x = width/2 + radius * Math.cos(angle)
+        node.y = height/2 + radius * Math.sin(angle)
+        
+        // Ensure no fixed positions
+        node.fx = null
+        node.fy = null
+        node.vx = null
+        node.vy = null
+      })
+    }
+    
+    console.log(`Creating new simulation with ${filteredData.nodes.length} nodes and ${filteredData.links.length} links`)
+    
+    // Create a completely new simulation with fresh force objects
+    const simulation = d3.forceSimulation()
+      // Set nodes after initializing the simulation
+      .nodes(filteredData.nodes as any)
+      // Add forces one by one
+      .force('link', d3.forceLink()
         .id((d: any) => d.id)
-        .distance(200)) // Increased distance between nodes
+        .links(filteredData.links as any)
+        .distance(linkDistance))
       .force('charge', d3.forceManyBody()
-        .strength(-800)) // Stronger repulsion
+        .strength(chargeStrength)
+        .distanceMin(10)
+        .distanceMax(1000))
       .force('center', d3.forceCenter(width / 2, height / 2))
-      .force('collision', d3.forceCollide().radius(100)) // Larger collision radius
-      .force('x', d3.forceX(width / 2).strength(0.05)) // Gentle force toward center x
-      .force('y', d3.forceY(height / 2).strength(0.05)) // Gentle force toward center y
+      .force('collision', d3.forceCollide().radius(collisionRadius))
+      .force('x', d3.forceX(width / 2).strength(centerStrength))
+      .force('y', d3.forceY(height / 2).strength(centerStrength))
+    
+    // Set simulation energy parameters
+    if (wasInFocusMode) {
+      // When exiting focus mode, use maximum energy and very slow decay
+      simulation
+        .alpha(1.0)
+        .alphaDecay(0.001) // Very slow decay
+        .alphaMin(0.0001)  // Run for longer
+        .alphaTarget(0)    // Ensure it eventually stops
+        .velocityDecay(0.1) // Lower velocity decay for more movement
+      
+      console.log('Using MAXIMUM force configuration for exiting focus mode:', {
+        chargeStrength,
+        linkDistance,
+        collisionRadius,
+        centerStrength,
+        alpha: 1.0,
+        alphaDecay: 0.001,
+        alphaMin: 0.0001,
+        velocityDecay: 0.1
+      })
+    } else if (needsStrongForces) {
+      // For regular full view (not exiting focus)
+      simulation
+        .alpha(1.0)
+        .alphaDecay(0.005)
+        .alphaMin(0.001)
+      
+      console.log('Using strong force configuration:', {
+        chargeStrength,
+        linkDistance,
+        collisionRadius,
+        centerStrength,
+        alpha: 1.0,
+        alphaDecay: 0.005
+      })
+    }
     
     // Create links with improved styling
     const link = g.append('g')
       .selectAll('line')
-      .data(data.links)
+      .data(filteredData.links)
       .join('line')
       .attr('stroke', '#ccc')
       .attr('stroke-opacity', 0.4)
@@ -283,7 +555,7 @@ const renderGraph = (data: GraphData) => {
     // First, create a group for each link label to properly handle the background
     const linkLabelGroups = g.append('g')
       .selectAll('g')
-      .data(data.links)
+      .data(filteredData.links)
       .join('g')
       .attr('class', 'link-label-group')
     
@@ -318,35 +590,56 @@ const renderGraph = (data: GraphData) => {
     // Create nodes with improved styling
     const node = g.append('g')
       .selectAll('g')
-      .data(data.nodes)
+      .data(filteredData.nodes)
       .join('g')
       .call(drag(simulation) as any)
       .on('click', (event, d) => {
-        // Show details when clicking on a node
-        showNodeDetails(d)
+        event.stopPropagation() // Prevent click from propagating to SVG
+        toggleFocusNode(d.id, data)
+        renderGraph(data) // Re-render the graph with the new focus
       })
     
-    // Calculate node height based on fields and directives
+    // Calculate node height based on fields, directives, possible types, and enum values
     const getNodeHeight = (d: GraphNode) => {
+      const isFocused = focusedNodeId.value === d.id
       const fieldCount = d.fields?.length || 0
       const directiveCount = d.directives?.length || 0
+      const possibleTypeCount = d.possibleTypes?.length || 0
+      const enumValueCount = d.enumValues?.length || 0
       const baseHeight = 40 // Title height
-      const fieldHeight = Math.min(fieldCount, 5) * 20 // Up to 5 fields
-      const directiveHeight = directiveCount > 0 ? 20 : 0 // Space for directives
-      const moreFieldsHeight = fieldCount > 5 ? 20 : 0 // "... more" text
       
-      return baseHeight + fieldHeight + directiveHeight + moreFieldsHeight
+      // Show all fields for focused node, otherwise limit to 5
+      const fieldHeight = (isFocused ? fieldCount : Math.min(fieldCount, 5)) * 20
+      const directiveHeight = directiveCount > 0 ? 20 : 0 // Space for directives
+      const moreFieldsHeight = !isFocused && fieldCount > 5 ? 20 : 0 // "... more" text
+      
+      // Add space for possible types (UnionType) and enum values (EnumType)
+      const possibleTypesHeight = possibleTypeCount > 0 ? 
+        (isFocused ? Math.min(possibleTypeCount, 10) : Math.min(possibleTypeCount, 3)) * 20 + 20 : 0
+      
+      const enumValuesHeight = enumValueCount > 0 ? 
+        (isFocused ? Math.min(enumValueCount, 10) : Math.min(enumValueCount, 3)) * 20 + 20 : 0
+      
+      return baseHeight + fieldHeight + directiveHeight + moreFieldsHeight + possibleTypesHeight + enumValuesHeight
     }
     
     // Add node rectangles with improved styling
     node.append('rect')
-      .attr('width', d => Math.max(d.name.length * 8 + 30, 120))
+      .attr('width', d => {
+        // Make nodes wider to accommodate field types
+        const isFocused = focusedNodeId.value === d.id
+        const baseWidth = Math.max(d.name.length * 8 + 30, 180) // Increased minimum width
+        return isFocused ? Math.max(baseWidth, 240) : baseWidth // Wider for focused nodes
+      })
       .attr('height', d => getNodeHeight(d))
       .attr('rx', 6)
       .attr('ry', 6)
       .attr('fill', d => getNodeColor(d.kind))
-      .attr('stroke', d => getNodeStrokeColor(d.kind))
-      .attr('stroke-width', 1.5)
+      .attr('stroke', d => {
+        // Highlight the focused node with a more prominent border
+        return focusedNodeId.value === d.id ? '#1d4ed8' : getNodeStrokeColor(d.kind)
+      })
+      .attr('stroke-width', d => focusedNodeId.value === d.id ? 3 : 1.5)
       .attr('filter', 'drop-shadow(1px 1px 2px rgba(0,0,0,0.2))')
     
     // Add node titles with improved styling
@@ -356,6 +649,33 @@ const renderGraph = (data: GraphData) => {
       .attr('font-weight', 'bold')
       .attr('font-size', 12)
       .text(d => d.name)
+      
+    // Add kind pill next to node title
+    node.each(function(d) {
+      const nodeGroup = d3.select(this)
+      const titleText = nodeGroup.select('text')
+      const titleBBox = titleText.node().getBBox()
+      const pillX = titleBBox.x + titleBBox.width + 10
+      
+      // Create pill background
+      nodeGroup.append('rect')
+        .attr('x', pillX)
+        .attr('y', titleBBox.y - 2)
+        .attr('width', d.kind.length * 6 + 10)
+        .attr('height', 16)
+        .attr('rx', 8)
+        .attr('ry', 8)
+        .attr('fill', getNodeStrokeColor(d.kind))
+        .attr('opacity', 0.2)
+      
+      // Create pill text
+      nodeGroup.append('text')
+        .attr('x', pillX + 5)
+        .attr('y', 20)
+        .attr('font-size', 9)
+        .attr('fill', getNodeStrokeColor(d.kind))
+        .text(d.kind)
+    })
     
     // Add directives if any
     node.each(function(d) {
@@ -371,22 +691,39 @@ const renderGraph = (data: GraphData) => {
       }
     })
     
-    // Add field names (limited to first 5 for readability)
+    // Add field names (all fields for focused node, limited to first 5 for others)
     node.each(function(d) {
       const nodeGroup = d3.select(this)
       const fields = d.fields || []
-      const displayFields = fields.slice(0, 5)
+      const isFocused = focusedNodeId.value === d.id
+      
+      // Show all fields for focused node, otherwise limit to 5
+      const displayFields = isFocused ? fields : fields.slice(0, 5)
       const directiveOffset = d.directives && d.directives.length > 0 ? 20 : 0
       
       displayFields.forEach((field, i) => {
-        nodeGroup.append('text')
-          .attr('x', 15)
-          .attr('y', 40 + directiveOffset + i * 20)
+        // Create a group for each field to contain name and type
+        const fieldGroup = nodeGroup.append('g')
+          .attr('transform', `translate(15, ${40 + directiveOffset + i * 20})`)
+        
+        // Add field name
+        fieldGroup.append('text')
           .attr('font-size', 11)
-          .text(field)
+          .text(field.name)
+        
+        // Add field type with different styling
+        // Format the type to be more compact
+        const formattedType = formatFieldType(field.type)
+        
+        fieldGroup.append('text')
+          .attr('font-size', 10)
+          .attr('fill', '#666')
+          .attr('x', field.name.length * 6 + 5) // Approximate spacing based on name length
+          .text(`: ${formattedType}`)
       })
       
-      if (fields.length > 5) {
+      // Only show "... more" for non-focused nodes
+      if (!isFocused && fields.length > 5) {
         nodeGroup.append('text')
           .attr('x', 15)
           .attr('y', 40 + directiveOffset + 5 * 20)
@@ -394,6 +731,130 @@ const renderGraph = (data: GraphData) => {
           .attr('fill', '#666')
           .text(`... ${fields.length - 5} more`)
       }
+      
+      // Display possible types for UnionType nodes
+      if (d.possibleTypes && d.possibleTypes.length > 0) {
+        // Calculate the y position based on fields
+        const fieldOffset = 40 + directiveOffset + 
+          (isFocused ? fields.length : Math.min(fields.length, 5)) * 20 + 
+          (!isFocused && fields.length > 5 ? 20 : 0)
+        
+        // Add section title
+        nodeGroup.append('text')
+          .attr('x', 10)
+          .attr('y', fieldOffset + 15)
+          .attr('font-weight', 'bold')
+          .attr('font-size', 11)
+          .text('Possible Types:')
+        
+        // Show all possible types for focused node, otherwise limit to 3
+        const displayPossibleTypes = isFocused ? 
+          d.possibleTypes.slice(0, 10) : 
+          d.possibleTypes.slice(0, 3)
+        
+        // Add each possible type
+        displayPossibleTypes.forEach((type, i) => {
+          nodeGroup.append('text')
+            .attr('x', 15)
+            .attr('y', fieldOffset + 35 + i * 20)
+            .attr('font-size', 11)
+            .text(type)
+        })
+        
+        // Show "... more" if needed
+        if (!isFocused && d.possibleTypes.length > 3) {
+          nodeGroup.append('text')
+            .attr('x', 15)
+            .attr('y', fieldOffset + 35 + 3 * 20)
+            .attr('font-size', 11)
+            .attr('fill', '#666')
+            .text(`... ${d.possibleTypes.length - 3} more`)
+        }
+      }
+      
+      // Display enum values for EnumType nodes
+      if (d.enumValues && d.enumValues.length > 0) {
+        // Calculate the y position based on fields and possible types
+        const fieldOffset = 40 + directiveOffset + 
+          (isFocused ? fields.length : Math.min(fields.length, 5)) * 20 + 
+          (!isFocused && fields.length > 5 ? 20 : 0)
+        
+        const possibleTypesOffset = d.possibleTypes && d.possibleTypes.length > 0 ?
+          20 + (isFocused ? Math.min(d.possibleTypes.length, 10) : Math.min(d.possibleTypes.length, 3)) * 20 +
+          (!isFocused && d.possibleTypes.length > 3 ? 20 : 0) : 0
+        
+        const yPosition = fieldOffset + possibleTypesOffset
+        
+        // Add section title
+        nodeGroup.append('text')
+          .attr('x', 10)
+          .attr('y', yPosition + 15)
+          .attr('font-weight', 'bold')
+          .attr('font-size', 11)
+          .text('Enum Values:')
+        
+        // Show all enum values for focused node, otherwise limit to 3
+        const displayEnumValues = isFocused ? 
+          d.enumValues.slice(0, 10) : 
+          d.enumValues.slice(0, 3)
+        
+        // Add each enum value
+        displayEnumValues.forEach((value, i) => {
+          nodeGroup.append('text')
+            .attr('x', 15)
+            .attr('y', yPosition + 35 + i * 20)
+            .attr('font-size', 11)
+            .text(value)
+        })
+        
+        // Show "... more" if needed
+        if (!isFocused && d.enumValues.length > 3) {
+          nodeGroup.append('text')
+            .attr('x', 15)
+            .attr('y', yPosition + 35 + 3 * 20)
+            .attr('font-size', 11)
+            .attr('fill', '#666')
+            .text(`... ${d.enumValues.length - 3} more`)
+        }
+      }
+    })
+    
+    // Add a legend below the graph
+    const legendContainer = d3.select(containerRef.value)
+      .append('div')
+      .attr('class', 'absolute bottom-4 left-4 bg-white p-3 rounded shadow-md')
+    
+    // Add legend title
+    legendContainer.append('div')
+      .attr('class', 'font-bold text-sm mb-2')
+      .text('Legend')
+    
+    // Create a grid for the legend items
+    const legendGrid = legendContainer.append('div')
+      .attr('class', 'grid grid-cols-2 gap-2')
+    
+    // Add legend items for each node type
+    const nodeTypes = [
+      { kind: 'ObjectType', label: 'Object' },
+      { kind: 'InterfaceType', label: 'Interface' },
+      { kind: 'EnumType', label: 'Enum' },
+      { kind: 'InputObjectType', label: 'Input' },
+      { kind: 'UnionType', label: 'Union' }
+    ]
+    
+    nodeTypes.forEach(type => {
+      const item = legendGrid.append('div')
+        .attr('class', 'flex items-center')
+      
+      // Add color indicator
+      item.append('div')
+        .attr('class', 'w-3 h-3 mr-2 rounded-sm')
+        .style('background-color', getNodeStrokeColor(type.kind))
+      
+      // Add label
+      item.append('div')
+        .attr('class', 'text-xs')
+        .text(type.label)
     })
     
     // Add a search box for filtering nodes
@@ -436,16 +897,77 @@ const renderGraph = (data: GraphData) => {
       .attr('class', 'ml-2 bg-gray-200 px-2 py-1 rounded text-sm')
       .text('Reset')
       .on('click', () => {
+        console.log('Reset button: Implementing radical solution')
+        
         // Reset search input
         searchContainer.select('input').property('value', '')
         
-        // Reset node and link opacity
-        node.style('opacity', 1)
-        link.style('opacity', 0.4)
-        linkLabelGroups.style('opacity', 1)
+        // Stop the current simulation completely
+        if (simulation) {
+          simulation.stop()
+        }
         
-        // Reset simulation
-        simulation.alpha(0.3).restart()
+        // Create a completely fresh copy of the data to break any references
+        const freshData = {
+          nodes: JSON.parse(JSON.stringify(filteredData.nodes)).map((node: any) => {
+            // Create completely fresh node objects with no position data
+            return {
+              ...node,
+              x: undefined,
+              y: undefined,
+              vx: undefined,
+              vy: undefined,
+              fx: undefined,
+              fy: undefined,
+              index: undefined
+            }
+          }),
+          links: JSON.parse(JSON.stringify(filteredData.links))
+        }
+        
+        console.log('Created fresh data with no position information')
+        
+        // Properly clean up D3 resources before DOM manipulation
+        if (simulation) {
+          // Stop the simulation to prevent any ongoing ticks
+          simulation.stop()
+          
+          // Remove all forces to prevent any references to DOM elements
+          simulation.force('link', null)
+          simulation.force('charge', null)
+          simulation.force('center', null)
+          simulation.force('collision', null)
+          simulation.force('x', null)
+          simulation.force('y', null)
+          
+          // Clear nodes to prevent any references
+          simulation.nodes([])
+          
+          console.log('Stopped and cleared simulation')
+        }
+        
+        // Safely clear the DOM with proper cleanup
+        if (containerRef.value) {
+          try {
+            // First remove event listeners
+            d3.select(containerRef.value).selectAll('*').on('.', null)
+            
+            // Then clear the DOM
+            d3.select(containerRef.value).selectAll('*').remove()
+            console.log('Cleared all DOM elements and event handlers')
+            
+            // Render with completely fresh data and special flag
+            // Use requestAnimationFrame to ensure browser has processed DOM changes
+            window.requestAnimationFrame(() => {
+              console.log('Re-rendering with fresh data')
+              renderGraph(freshData, true)
+            })
+          } catch (err) {
+            console.error('Error during cleanup:', err)
+            // Fallback rendering if cleanup fails
+            renderGraph(freshData, true)
+          }
+        }
       })
     
     // Add a layout button
@@ -456,16 +978,179 @@ const renderGraph = (data: GraphData) => {
         // Adjust forces for better layout
         simulation
           .force('charge', d3.forceManyBody().strength(-1000))
-          .force('link', d3.forceLink(data.links as any)
+          .force('link', d3.forceLink(filteredData.links as any)
             .id((d: any) => d.id)
             .distance(250))
           .force('collision', d3.forceCollide().radius(120))
           .alpha(0.5)
           .restart()
       })
+      
+    // Add focus mode controls if a node is focused
+    if (focusedNodeId.value) {
+      // Add a divider
+      searchContainer.append('div')
+        .attr('class', 'border-t my-2')
+      
+      // Add a label for focus mode
+      searchContainer.append('div')
+        .attr('class', 'text-xs font-medium mb-1 text-blue-800')
+        .text(`Focus Mode: ${data.nodes.find(n => n.id === focusedNodeId.value)?.name} (locked at center)`)
+      
+      // Add depth control
+      const depthControl = searchContainer.append('div')
+        .attr('class', 'flex items-center')
+      
+      depthControl.append('span')
+        .attr('class', 'text-xs mr-2')
+        .text('Depth:')
+      
+      // Decrease depth button
+      depthControl.append('button')
+        .attr('class', 'bg-gray-200 px-2 py-0.5 rounded text-sm')
+        .text('-')
+        .attr('disabled', maxDepth.value <= 1 ? true : null)
+        .style('opacity', maxDepth.value <= 1 ? 0.5 : 1)
+        .on('click', () => {
+          if (maxDepth.value > 1) {
+            maxDepth.value--
+            renderGraph(data)
+          }
+        })
+      
+      // Current depth
+      depthControl.append('span')
+        .attr('class', 'mx-2 text-sm')
+        .text(maxDepth.value)
+      
+      // Increase depth button
+      depthControl.append('button')
+        .attr('class', 'bg-gray-200 px-2 py-0.5 rounded text-sm')
+        .text('+')
+        .on('click', () => {
+          maxDepth.value++
+          renderGraph(data)
+        })
+      
+      // Exit focus mode button
+      searchContainer.append('button')
+        .attr('class', 'mt-2 w-full bg-blue-50 border border-blue-200 px-2 py-1 rounded text-sm text-blue-800')
+        .text('Exit Focus Mode')
+        .on('click', () => {
+          console.log('Exit focus mode: Implementing radical solution')
+          
+          // Clear focus node ID
+          focusedNodeId.value = null
+          
+          // Stop the current simulation completely
+          if (simulation) {
+            simulation.stop()
+          }
+          
+          // Create a completely fresh copy of the data to break any references
+          const freshData = {
+            nodes: JSON.parse(JSON.stringify(data.nodes)).map((node: any) => {
+              // Create completely fresh node objects with no position data
+              return {
+                ...node,
+                x: undefined,
+                y: undefined,
+                vx: undefined,
+                vy: undefined,
+                fx: undefined,
+                fy: undefined,
+                index: undefined
+              }
+            }),
+            links: JSON.parse(JSON.stringify(data.links))
+          }
+          
+          console.log('Created fresh data with no position information')
+          
+          // Properly clean up D3 resources before DOM manipulation
+          if (simulation) {
+            // Stop the simulation to prevent any ongoing ticks
+            simulation.stop()
+            
+            // Remove all forces to prevent any references to DOM elements
+            simulation.force('link', null)
+            simulation.force('charge', null)
+            simulation.force('center', null)
+            simulation.force('collision', null)
+            simulation.force('x', null)
+            simulation.force('y', null)
+            
+            // Clear nodes to prevent any references
+            simulation.nodes([])
+            
+            console.log('Stopped and cleared simulation')
+          }
+          
+          // Safely clear the DOM with proper cleanup
+          if (containerRef.value) {
+            try {
+              // First remove event listeners
+              d3.select(containerRef.value).selectAll('*').on('.', null)
+              
+              // Then clear the DOM
+              d3.select(containerRef.value).selectAll('*').remove()
+              console.log('Cleared all DOM elements and event handlers')
+              
+              // Render with completely fresh data and special flag
+              // Use requestAnimationFrame to ensure browser has processed DOM changes
+              window.requestAnimationFrame(() => {
+                console.log('Re-rendering with fresh data')
+                renderGraph(freshData, true)
+              })
+            } catch (err) {
+              console.error('Error during cleanup:', err)
+              // Fallback rendering if cleanup fails
+              renderGraph(freshData, true)
+            }
+          }
+        })
+    }
     
     // Update positions on simulation tick
     simulation.on('tick', () => {
+      // If a node is focused, lock it to the center of the viewport
+      if (focusedNodeId.value) {
+        const focusedNode = filteredData.nodes.find(n => n.id === focusedNodeId.value)
+        
+        // If the focused node is not in the filtered data, something went wrong
+        // Let's log this for debugging
+        if (!focusedNode) {
+          console.error('Focused node not found in filtered data:', focusedNodeId.value)
+          console.log('Filtered nodes:', filteredData.nodes.map(n => n.id))
+          
+          // This is a critical error - the focused node should always be in the filtered data
+          // Let's fix it by adding the focused node from the original data
+          const originalFocusedNode = data.nodes.find(n => n.id === focusedNodeId.value)
+          if (originalFocusedNode) {
+            filteredData.nodes.push(originalFocusedNode)
+            console.log('Added focused node back to filtered data')
+          }
+        }
+        
+        // Try to find the focused node again (it should be there now)
+        const focusedNodeToCenter = filteredData.nodes.find(n => n.id === focusedNodeId.value)
+        if (focusedNodeToCenter) {
+          // Set the focused node position to the center
+          const centerX = width / 2
+          const centerY = height / 2
+          
+          // Calculate the offset between current position and center
+          const dx = centerX - (focusedNodeToCenter as any).x
+          const dy = centerY - (focusedNodeToCenter as any).y
+          
+          // Apply the offset to all nodes to keep relative positions
+          filteredData.nodes.forEach((n: any) => {
+            n.x += dx
+            n.y += dy
+          })
+        }
+      }
+      
       link
         .attr('x1', (d: any) => d.source.x)
         .attr('y1', (d: any) => d.source.y)
@@ -480,7 +1165,12 @@ const renderGraph = (data: GraphData) => {
           return `translate(${midX}, ${midY})`
         })
       
-      node.attr('transform', (d: any) => `translate(${d.x - 60}, ${d.y - 25})`)
+      node.attr('transform', function(d: any) {
+        // Center the node based on its width
+        const nodeWidth = d3.select(this).select('rect').attr('width') || 180
+        const offsetX = parseInt(nodeWidth) / 2
+        return `translate(${d.x - offsetX}, ${d.y - 25})`
+      })
     })
     
     // Create drag behavior
@@ -489,9 +1179,19 @@ const renderGraph = (data: GraphData) => {
         if (!event.active) simulation.alphaTarget(0.3).restart()
         event.subject.fx = event.subject.x
         event.subject.fy = event.subject.y
+        
+        // If this is the focused node, prevent dragging to keep it centered
+        if (focusedNodeId.value === event.subject.id) {
+          event.sourceEvent.stopPropagation()
+        }
       }
       
       function dragged(event: any) {
+        // If this is the focused node, don't allow dragging
+        if (focusedNodeId.value === event.subject.id) {
+          return
+        }
+        
         event.subject.fx = event.x
         event.subject.fy = event.y
       }
@@ -520,7 +1220,98 @@ const renderGraph = (data: GraphData) => {
     svg.call((zoom as any).transform, initialTransform)
     
     // Run simulation for a bit to get a better initial layout
-    for (let i = 0; i < 100; ++i) simulation.tick()
+    // Run more iterations when exiting focus mode or in full graph view
+    const iterations = wasInFocusMode ? 1000 : (focusedNodeId.value ? 100 : 300)
+    
+    console.log(`Running ${iterations} simulation iterations for initial layout`)
+    
+    // For exiting focus mode, use a more aggressive approach with multiple phases
+    if (wasInFocusMode) {
+      console.log('Using multi-phase simulation for exiting focus mode')
+      
+      // Phase 1: Initial spread with very strong repulsion
+      console.log('Phase 1: Initial spread with very strong repulsion')
+      simulation.force('charge').strength(-5000)
+      for (let i = 0; i < 200; ++i) simulation.tick()
+      
+      // Phase 2: Reduce repulsion and let links pull related nodes together
+      console.log('Phase 2: Reduce repulsion and let links pull related nodes together')
+      simulation.force('charge').strength(-3000)
+      simulation.force('link').distance(250)
+      for (let i = 0; i < 300; ++i) simulation.tick()
+      
+      // Phase 3: Fine-tune with more balanced forces
+      console.log('Phase 3: Fine-tune with more balanced forces')
+      simulation.force('charge').strength(-2000)
+      simulation.force('link').distance(200)
+      for (let i = 0; i < 500; ++i) {
+        simulation.tick()
+        
+        // Every 100 iterations, check for clustering
+        if (i % 100 === 0) {
+          // Check for clustering by measuring the average distance between nodes
+          let totalDistance = 0
+          let pairCount = 0
+          
+          for (let j = 0; j < filteredData.nodes.length; j++) {
+            for (let k = j + 1; k < filteredData.nodes.length; k++) {
+              const node1 = filteredData.nodes[j] as any
+              const node2 = filteredData.nodes[k] as any
+              const dx = node1.x - node2.x
+              const dy = node1.y - node2.y
+              const distance = Math.sqrt(dx * dx + dy * dy)
+              totalDistance += distance
+              pairCount++
+            }
+          }
+          
+          const avgDistance = pairCount > 0 ? totalDistance / pairCount : 0
+          console.log(`Phase 3 - Iteration ${i}: Average node distance = ${avgDistance.toFixed(2)}`)
+          
+          // If nodes are too close together, increase repulsion
+          if (avgDistance < 100 && filteredData.nodes.length > 5) {
+            const newStrength = simulation.force('charge').strength() * 1.5
+            console.log(`Nodes too clustered, increasing repulsion to ${newStrength}`)
+            simulation.force('charge').strength(newStrength)
+          }
+        }
+      }
+      
+      console.log('Multi-phase simulation complete')
+    } else {
+      // Standard simulation for normal mode and focus mode
+      for (let i = 0; i < iterations; ++i) {
+        simulation.tick()
+        
+        // If in full view (not focus mode), periodically check for clustering
+        if (!focusedNodeId.value && i % 100 === 0 && i > 0 && filteredData.nodes.length > 10) {
+          // Check for clustering by measuring the average distance between nodes
+          let totalDistance = 0
+          let pairCount = 0
+          
+          for (let j = 0; j < filteredData.nodes.length; j++) {
+            for (let k = j + 1; k < filteredData.nodes.length; k++) {
+              const node1 = filteredData.nodes[j] as any
+              const node2 = filteredData.nodes[k] as any
+              const dx = node1.x - node2.x
+              const dy = node1.y - node2.y
+              const distance = Math.sqrt(dx * dx + dy * dy)
+              totalDistance += distance
+              pairCount++
+            }
+          }
+          
+          const avgDistance = pairCount > 0 ? totalDistance / pairCount : 0
+          
+          // If nodes are too close together, increase repulsion
+          if (avgDistance < 100) {
+            const newStrength = simulation.force('charge').strength() * 1.5
+            console.log(`Nodes too clustered, increasing repulsion to ${newStrength}`)
+            simulation.force('charge').strength(newStrength)
+          }
+        }
+      }
+    }
   } catch (err) {
     error.value = `Error rendering graph: ${err instanceof Error ? err.message : String(err)}`
     console.error('Graph rendering error:', err)
@@ -564,6 +1355,64 @@ const getNodeStrokeColor = (kind: string) => {
       return '#2f54eb'
     default:
       return '#d9d9d9'
+  }
+}
+
+// Calculate node distances from a focused node
+const calculateNodeDistances = (data: GraphData, focusedId: string): Map<string, number> => {
+  const distances = new Map<string, number>()
+  
+  // Initialize all distances to Infinity
+  data.nodes.forEach(node => {
+    distances.set(node.id, Infinity)
+  })
+  
+  // Set the focused node distance to 0
+  distances.set(focusedId, 0)
+  
+  // Create an adjacency list from the links
+  const adjacencyList = new Map<string, string[]>()
+  data.nodes.forEach(node => {
+    adjacencyList.set(node.id, [])
+  })
+  
+  data.links.forEach(link => {
+    const sourceId = typeof link.source === 'string' ? link.source : link.source.id
+    const targetId = typeof link.target === 'string' ? link.target : link.target.id
+    
+    // Add both directions for undirected graph
+    adjacencyList.get(sourceId)?.push(targetId)
+    adjacencyList.get(targetId)?.push(sourceId)
+  })
+  
+  // Breadth-first search to find shortest paths
+  const queue: string[] = [focusedId]
+  const visited = new Set<string>([focusedId])
+  
+  while (queue.length > 0) {
+    const current = queue.shift()!
+    const currentDistance = distances.get(current)!
+    
+    adjacencyList.get(current)?.forEach(neighbor => {
+      if (!visited.has(neighbor)) {
+        visited.add(neighbor)
+        distances.set(neighbor, currentDistance + 1)
+        queue.push(neighbor)
+      }
+    })
+  }
+  
+  return distances
+}
+
+// Toggle focus on a node
+const toggleFocusNode = (nodeId: string, data: GraphData) => {
+  if (focusedNodeId.value === nodeId) {
+    // If clicking the already focused node, clear focus
+    focusedNodeId.value = null
+  } else {
+    // Otherwise, set focus to the clicked node
+    focusedNodeId.value = nodeId
   }
 }
 
