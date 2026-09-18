@@ -6,6 +6,19 @@ export type ConnectionExport = {
   version: string
   connections: Array<Connection>
   exportedAt: string
+  /**
+   * Whether this file carries decrypted credentials. Absent on files written
+   * by older versions, which always included them.
+   */
+  includesCredentials?: boolean
+}
+
+export type ConnectionExportOptions = {
+  /**
+   * Write decrypted passwords, tokens and API keys into the downloaded file.
+   * Off by default — the file is plaintext JSON on disk.
+   */
+  includeCredentials?: boolean
 }
 
 export type ConnectionImportResult = {
@@ -13,35 +26,55 @@ export type ConnectionImportResult = {
   message: string
   importedCount: number
   errors: string[]
+  /** Whether the imported file carried credentials. */
+  credentialsIncluded: boolean
 }
 
 export const useConnectionExportImport = () => {
   const connectionsStore = useConnectionsStore()
   const credentialStorage = useCredentialStorage()
 
-  /**
-   * Export a single connection to a JSON file
-   */
-  const exportConnection = (connectionId: string): boolean => {
-    const connection = connectionsStore.connections.find(conn => conn.id === connectionId)
-    if (!connection) return false
+  const emptyCredentials = (useUnifiedAuth?: boolean): ConnectionCredentials => ({
+    graphql: { method: 'none' },
+    admin: { method: 'none' },
+    useUnifiedAuth: useUnifiedAuth ?? true
+  })
 
+  /**
+   * Build the exportable copy of a connection. Credentials are only read out of
+   * storage when the caller explicitly asked for them; otherwise the copy
+   * carries an empty credential block.
+   */
+  const buildConnectionCopy = (connection: Connection, includeCredentials: boolean): Connection => {
     // Create a deep copy of the connection to avoid modifying the original
     const connectionCopy = JSON.parse(JSON.stringify(connection)) as Connection
 
-    // If the connection is secure, get the credentials from storage
-    if (connection.isSecure) {
-      const storedCredentials = credentialStorage.getCredentials(connection.id)
-      if (storedCredentials) {
-        connectionCopy.credentials = storedCredentials
-      }
+    if (!includeCredentials) {
+      connectionCopy.credentials = emptyCredentials(connection.credentials?.useUnifiedAuth)
+      return connectionCopy
     }
+
+    const storedCredentials = credentialStorage.getCredentials(connection.id)
+    connectionCopy.credentials = storedCredentials ?? emptyCredentials(connection.credentials?.useUnifiedAuth)
+
+    return connectionCopy
+  }
+
+  /**
+   * Export a single connection to a JSON file
+   */
+  const exportConnection = (connectionId: string, options: ConnectionExportOptions = {}): boolean => {
+    const connection = connectionsStore.connections.find(conn => conn.id === connectionId)
+    if (!connection) return false
+
+    const includeCredentials = options.includeCredentials === true
 
     // Create export object
     const exportData: ConnectionExport = {
-      version: '1.0',
-      connections: [connectionCopy],
-      exportedAt: new Date().toISOString()
+      version: '1.1',
+      connections: [buildConnectionCopy(connection, includeCredentials)],
+      exportedAt: new Date().toISOString(),
+      includesCredentials: includeCredentials
     }
 
     // Convert to JSON and create download
@@ -52,35 +85,86 @@ export const useConnectionExportImport = () => {
   /**
    * Export all connections to a JSON file
    */
-  const exportAllConnections = (): boolean => {
+  const exportAllConnections = (options: ConnectionExportOptions = {}): boolean => {
     if (connectionsStore.connections.length === 0) return false
 
-    // Create deep copies of connections with their credentials
-    const connectionCopies = connectionsStore.connections.map(connection => {
-      // Create a deep copy of the connection
-      const connectionCopy = JSON.parse(JSON.stringify(connection)) as Connection
-      
-      // If the connection is secure, get the credentials from storage
-      if (connection.isSecure) {
-        const storedCredentials = credentialStorage.getCredentials(connection.id)
-        if (storedCredentials) {
-          connectionCopy.credentials = storedCredentials
-        }
-      }
-      
-      return connectionCopy
-    })
+    const includeCredentials = options.includeCredentials === true
 
     // Create export object
     const exportData: ConnectionExport = {
-      version: '1.0',
-      connections: connectionCopies,
-      exportedAt: new Date().toISOString()
+      version: '1.1',
+      connections: connectionsStore.connections.map(connection => buildConnectionCopy(connection, includeCredentials)),
+      exportedAt: new Date().toISOString(),
+      includesCredentials: includeCredentials
     }
 
     // Convert to JSON and create download
     downloadJson(exportData, 'dgraph-connections.json')
     return true
+  }
+
+  /**
+   * Convert a credential block from the pre-separate-auth format if needed.
+   */
+  const normalizeCredentials = (credentials: ConnectionCredentials): ConnectionCredentials => {
+    if (credentials.graphql || credentials.admin) {
+      return credentials
+    }
+
+    // Convert old format to new format
+    const oldCredentials = credentials as unknown as {
+      username?: string
+      password?: string
+      apiKey?: string
+      token?: string
+      authToken?: string
+      dgAuth?: string
+    }
+
+    // Determine the auth method based on which credential is present
+    let method: AuthMethod = 'none'
+    if (oldCredentials.username && oldCredentials.password) {
+      method = 'basic'
+    } else if (oldCredentials.token) {
+      method = 'token'
+    } else if (oldCredentials.apiKey) {
+      method = 'api-key'
+    } else if (oldCredentials.authToken) {
+      method = 'auth-token'
+    } else if (oldCredentials.dgAuth) {
+      method = 'dg-auth'
+    }
+
+    const converted: AuthCredentials = {
+      method,
+      username: oldCredentials.username || '',
+      password: oldCredentials.password || '',
+      apiKey: oldCredentials.apiKey || '',
+      token: oldCredentials.token || '',
+      authToken: oldCredentials.authToken || '',
+      dgAuth: oldCredentials.dgAuth || ''
+    }
+
+    return {
+      graphql: { ...converted },
+      admin: { ...converted },
+      useUnifiedAuth: true
+    }
+  }
+
+  /**
+   * True when a credential block actually carries something worth storing.
+   * `isSecure` is deliberately not consulted: an export can carry credentials
+   * with `isSecure: false` and dropping them silently loses data.
+   */
+  const carriesSecrets = (credentials: ConnectionCredentials): boolean => {
+    const authCarriesSecrets = (auth?: AuthCredentials): boolean =>
+      !!auth && (
+        auth.method !== 'none' ||
+        !!(auth.username || auth.password || auth.apiKey || auth.token || auth.authToken || auth.dgAuth)
+      )
+
+    return authCarriesSecrets(credentials.graphql) || authCarriesSecrets(credentials.admin)
   }
 
   /**
@@ -91,16 +175,17 @@ export const useConnectionExportImport = () => {
       success: false,
       message: '',
       importedCount: 0,
-      errors: []
+      errors: [],
+      credentialsIncluded: false
     }
 
     try {
       // Read file content
       const fileContent = await readFileAsText(file)
-      
+
       // Parse JSON
       const importData = JSON.parse(fileContent) as unknown
-      
+
       // Validate import data
       if (!isValidConnectionExport(importData)) {
         result.message = 'Invalid import file format'
@@ -108,121 +193,103 @@ export const useConnectionExportImport = () => {
       }
 
       const exportData = importData as ConnectionExport
-      
-      // Process each connection
+
+      // Files written before the credentials opt-out always carried credentials
+      result.credentialsIncluded = exportData.includesCredentials ?? true
+
+      // First pass: create or update every connection and record where each
+      // imported ID ended up, since `addConnection` mints a fresh UUID.
+      const idMap = new Map<string, string>()
+
       for (const connection of exportData.connections) {
         try {
+          // Handle legacy credential format if needed
+          const credentials = normalizeCredentials(connection.credentials)
+
           // Check if connection with same ID already exists
           const existingIndex = connectionsStore.connections.findIndex(conn => conn.id === connection.id)
-          
-          // Handle legacy credential format if needed
-          let credentials = connection.credentials
-          
-          // Check if the credentials are in the old format (pre-separate auth)
-          if (!credentials.graphql && !credentials.admin) {
-            // Convert old format to new format
-            const oldCredentials = credentials as unknown as {
-              username?: string
-              password?: string
-              apiKey?: string
-              token?: string
-              authToken?: string
-              dgAuth?: string
-            }
-            
-            // Determine the auth method based on which credential is present
-            let method: AuthMethod = 'none'
-            if (oldCredentials.username && oldCredentials.password) {
-              method = 'basic'
-            } else if (oldCredentials.token) {
-              method = 'token'
-            } else if (oldCredentials.apiKey) {
-              method = 'api-key'
-            } else if (oldCredentials.authToken) {
-              method = 'auth-token'
-            } else if (oldCredentials.dgAuth) {
-              method = 'dg-auth'
-            }
-            
-            // Create new credentials structure
-            credentials = {
-              graphql: {
-                method,
-                username: oldCredentials.username || '',
-                password: oldCredentials.password || '',
-                apiKey: oldCredentials.apiKey || '',
-                token: oldCredentials.token || '',
-                authToken: oldCredentials.authToken || '',
-                dgAuth: oldCredentials.dgAuth || ''
-              },
-              admin: {
-                method,
-                username: oldCredentials.username || '',
-                password: oldCredentials.password || '',
-                apiKey: oldCredentials.apiKey || '',
-                token: oldCredentials.token || '',
-                authToken: oldCredentials.authToken || '',
-                dgAuth: oldCredentials.dgAuth || ''
-              },
-              useUnifiedAuth: true
-            }
-          }
-          
+
+          let targetId: string
+
           if (existingIndex >= 0) {
-            // Update existing connection
+            // Update existing connection. Links are resolved in the second pass.
             connectionsStore.updateConnection(connection.id, {
               name: connection.name,
               type: connection.type,
               url: connection.url,
               isSecure: connection.isSecure,
-              environment: connection.environment,
-              linkedProductionId: connection.linkedProductionId
+              environment: connection.environment
             })
+            targetId = connection.id
           } else {
-            // Add new connection with potentially converted credentials
-            const newId = connectionsStore.addConnection({
+            // Add new connection; credentials live in credential storage, not the store
+            targetId = connectionsStore.addConnection({
               name: connection.name,
               type: connection.type,
               url: connection.url,
-              credentials: { 
+              credentials: {
                 graphql: { method: 'none' },
                 admin: { method: 'none' },
                 useUnifiedAuth: credentials.useUnifiedAuth ?? true
               },
               isSecure: connection.isSecure,
-              environment: connection.environment,
-              linkedProductionId: connection.linkedProductionId
+              environment: connection.environment
             })
-            
-            // Save credentials if secure
-            if (connection.isSecure) {
-              credentialStorage.saveCredentials(newId, credentials)
-            }
           }
-          
+
+          idMap.set(connection.id, targetId)
+
+          // Write credentials on both the create and the update path, so
+          // re-importing a file with a rotated token actually refreshes it.
+          if (carriesSecrets(credentials)) {
+            credentialStorage.saveCredentials(targetId, credentials)
+          }
+
           result.importedCount++
         } catch (error) {
           result.errors.push(`Failed to import connection "${connection.name}": ${error instanceof Error ? error.message : String(error)}`)
         }
       }
-      
+
+      // Second pass: remap dev to production links onto the new IDs
+      for (const connection of exportData.connections) {
+        const targetId = idMap.get(connection.id)
+        if (!targetId) continue
+
+        if (!connection.linkedProductionId) {
+          connectionsStore.updateConnection(targetId, { linkedProductionId: undefined })
+          continue
+        }
+
+        const remappedId = idMap.get(connection.linkedProductionId)
+          ?? (connectionsStore.connections.some(conn => conn.id === connection.linkedProductionId)
+            ? connection.linkedProductionId
+            : undefined)
+
+        if (!remappedId) {
+          result.errors.push(`Connection "${connection.name}" was linked to a production connection that is not in this file; the link was dropped.`)
+        }
+
+        connectionsStore.updateConnection(targetId, { linkedProductionId: remappedId })
+      }
+
       result.success = result.importedCount > 0
-      result.message = result.success 
-        ? `Successfully imported ${result.importedCount} connection${result.importedCount !== 1 ? 's' : ''}`
+      result.message = result.success
+        ? `Successfully imported ${result.importedCount} connection${result.importedCount !== 1 ? 's' : ''}${result.credentialsIncluded ? '' : ' (no credentials in file \u2014 re-enter them before connecting)'}`
         : 'Failed to import any connections'
-      
+
     } catch (error) {
       result.success = false
       result.message = `Import failed: ${error instanceof Error ? error.message : String(error)}`
     }
-    
+
     return result
   }
 
   /**
    * Helper to download JSON as a file
    */
-  const downloadJson = (data: any, filename: string) => {
+  const downloadJson = (data: ConnectionExport, filename: string) => {
     const json = JSON.stringify(data, null, 2)
     const blob = new Blob([json], { type: 'application/json' })
     const url = URL.createObjectURL(blob)
@@ -294,22 +361,21 @@ export const useConnectionExportImport = () => {
     
     const connection = data as Partial<Connection>
     
-    // Check required fields
+    // Check required fields. `createdAt`/`updatedAt` are deliberately not
+    // required: the import path discards them and lets the store set its own.
     const hasRequiredFields = !!(
       connection.id &&
       connection.name &&
       connection.type &&
       connection.url &&
       typeof connection.isSecure === 'boolean' &&
-      connection.createdAt &&
-      connection.updatedAt &&
       connection.credentials
     )
     
     if (!hasRequiredFields) return false
     
     // For backward compatibility, we accept both old and new credential formats
-    const credentials = connection.credentials as any
+    const credentials = connection.credentials as Record<string, unknown>
     
     // New format: should have graphql and admin properties
     const isNewFormat = !!(credentials.graphql && credentials.admin)

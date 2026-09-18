@@ -1,37 +1,34 @@
-import { ref, watch, onMounted, type Ref } from 'vue'
-import { Codemirror } from 'vue-codemirror'
+import { ref, type Ref } from 'vue'
 import { EditorState, type Extension } from '@codemirror/state'
 import { EditorView, keymap, lineNumbers } from '@codemirror/view'
 import { defaultKeymap, history, historyKeymap } from '@codemirror/commands'
 import { indentOnInput, syntaxHighlighting, defaultHighlightStyle } from '@codemirror/language'
 import { graphql } from 'cm6-graphql'
-import { showMinimap } from '@replit/codemirror-minimap'
+import type { GraphQLSchema } from 'graphql'
 import { useGraphQLSchemaParser } from './useGraphQLSchemaParser'
 import { createGraphQLHoverExtension } from './extensions/graphqlHoverExtension'
 import { createGraphQLNavigationExtension } from './extensions/graphqlNavigationExtension'
 
+/**
+ * Build the CodeMirror extension set for a GraphQL schema editor.
+ *
+ * `value` is the single source of truth for the document: pass the same ref the
+ * host component binds with `v-model` on `<Codemirror>` so the editor, the
+ * component and the schema parser all read and write one string.
+ */
 export function useCodeMirror(
-  initialValue: string = '',
+  value: Ref<string> = ref(''),
   options: {
     readOnly?: boolean
     onChange?: (value: string) => void
-    schema?: any
+    schema?: GraphQLSchema
     enableReferenceLinks?: boolean
   } = {}
 ) {
   const { readOnly = false, onChange, schema, enableReferenceLinks = true } = options
-  const value = ref(initialValue)
-  const editorRef = ref<InstanceType<typeof Codemirror> | null>(null)
-  
+
   // Initialize schema parser for reference linking
   const schemaParser = enableReferenceLinks ? useGraphQLSchemaParser(value) : null
-  
-
-let create = (v: EditorView) => {
-  const dom = document.createElement('div');
-  return { dom }
-}
-
 
   // Create extensions array with GraphQL support
   const createExtensions = () => {
@@ -43,14 +40,6 @@ let create = (v: EditorView) => {
       syntaxHighlighting(defaultHighlightStyle),
       // Use schema if provided, otherwise just basic GraphQL syntax
       schema ? graphql(schema) : graphql(),
-      // Add minimap for better navigation
-      showMinimap.compute(['doc'], (state) => {
-      return {
-        create,
-        displayText: 'characters',
-        showOverlay: 'mouse-over',
-      }
-    }),
       EditorView.updateListener.of(update => {
         if (update.docChanged) {
           const newValue = update.state.doc.toString()
@@ -81,44 +70,9 @@ let create = (v: EditorView) => {
     return extensions
   }
 
-  // Update editor content
-  const updateContent = (newContent: string) => {
-    if (!editorRef.value?.view) return
-    
-    const view = editorRef.value.view
-    const currentContent = view.state.doc.toString()
-    
-    if (currentContent !== newContent) {
-      view.dispatch({
-        changes: { from: 0, to: currentContent.length, insert: newContent }
-      })
-    }
-  }
-
-  // Update schema
-  const updateSchema = (newSchema: any) => {
-    if (!editorRef.value?.view) return
-    
-    // Use the updateSchema function from cm6-graphql
-    if (typeof window !== 'undefined') {
-      const { updateSchema: updateGraphQLSchema } = require('cm6-graphql')
-      updateGraphQLSchema(editorRef.value.view, newSchema)
-    }
-  }
-
-  // Watch for value changes
-  watch(value, (newValue) => {
-    if (editorRef.value?.view && editorRef.value.view.state.doc.toString() !== newValue) {
-      updateContent(newValue)
-    }
-  })
-
   return {
     value,
-    editorRef,
     extensions: createExtensions(),
-    updateContent,
-    updateSchema,
     // Expose schema parser for debugging/inspection
     schemaParser: schemaParser ? {
       typeDefinitions: schemaParser.typeDefinitions,

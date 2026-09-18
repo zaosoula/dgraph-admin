@@ -1,13 +1,32 @@
 import { ref } from 'vue'
-import { encrypt, decrypt, encryptObject, decryptObject } from '@/utils/encryption'
+import {
+  encryptObject,
+  decryptObject,
+  isPassphraseConfigured,
+  isPassphraseUnlocked,
+  lockPassphrase,
+  removePassphrase,
+  setPassphrase,
+  unlockWithPassphrase
+} from '@/utils/encryption'
 import type { ConnectionCredentials } from '@/types/connection'
 
+const storageKey = 'dgraph_admin_credentials'
+const sessionStorageKey = 'dgraph_admin_session_credentials'
+
+// Passphrase state is process-wide (the derived key lives in the encryption
+// module), so these refs must be shared by every composable instance.
+const hasPassphrase = ref(false)
+const isUnlocked = ref(false)
+
 export const useCredentialStorage = () => {
-  const storageKey = 'dgraph_admin_credentials'
-  const sessionStorageKey = 'dgraph_admin_session_credentials'
   
   // Determine if we should use persistent storage or session storage
   const isPersistent = ref(localStorage.getItem('dgraph_admin_persist_credentials') === 'true')
+
+  // Keep the shared passphrase flags in sync with the encryption module
+  hasPassphrase.value = isPassphraseConfigured()
+  isUnlocked.value = isPassphraseUnlocked()
   
   // Set persistence preference
   const setPersistence = (persist: boolean) => {
@@ -128,13 +147,110 @@ export const useCredentialStorage = () => {
     }
   }
   
+  // Read every stored credential bundle, from both storages, under the key
+  // currently in use. Used to re-encrypt when the key itself changes.
+  const readAllBundles = (): { persistent: Record<string, ConnectionCredentials> | null, session: Record<string, ConnectionCredentials> | null } => {
+    const read = (raw: string | null): Record<string, ConnectionCredentials> | null => {
+      if (!raw) return null
+      try {
+        return decryptObject<Record<string, ConnectionCredentials>>(raw)
+      } catch (error) {
+        console.error('Failed to read credentials for re-encryption:', error)
+        return null
+      }
+    }
+
+    return {
+      persistent: read(localStorage.getItem(storageKey)),
+      session: read(sessionStorage.getItem(sessionStorageKey))
+    }
+  }
+
+  const writeAllBundles = (bundles: { persistent: Record<string, ConnectionCredentials> | null, session: Record<string, ConnectionCredentials> | null }) => {
+    if (bundles.persistent) {
+      localStorage.setItem(storageKey, encryptObject(bundles.persistent))
+    }
+    if (bundles.session) {
+      sessionStorage.setItem(sessionStorageKey, encryptObject(bundles.session))
+    }
+  }
+
+  /**
+   * Turn on passphrase-derived encryption. Existing credentials are read under
+   * the old key and written back under the new one, so nothing is lost.
+   */
+  const enablePassphrase = (passphrase: string): boolean => {
+    if (!passphrase) return false
+
+    try {
+      const bundles = readAllBundles()
+
+      if (!setPassphrase(passphrase)) return false
+
+      writeAllBundles(bundles)
+      hasPassphrase.value = true
+      isUnlocked.value = true
+      return true
+    } catch (error) {
+      console.error('Failed to enable passphrase:', error)
+      return false
+    }
+  }
+
+  /**
+   * Supply the passphrase for an already-configured session. Returns false if
+   * the passphrase does not match the stored verifier.
+   */
+  const unlockPassphrase = (passphrase: string): boolean => {
+    const unlocked = unlockWithPassphrase(passphrase)
+    isUnlocked.value = unlocked
+    return unlocked
+  }
+
+  /**
+   * Go back to the default (key-beside-the-ciphertext) mode. Requires the
+   * session to be unlocked, otherwise the existing credentials cannot be read
+   * back and would be orphaned.
+   */
+  const disablePassphrase = (): boolean => {
+    if (hasPassphrase.value && !isPassphraseUnlocked()) return false
+
+    try {
+      const bundles = readAllBundles()
+
+      removePassphrase()
+
+      writeAllBundles(bundles)
+      hasPassphrase.value = false
+      isUnlocked.value = false
+      return true
+    } catch (error) {
+      console.error('Failed to disable passphrase:', error)
+      return false
+    }
+  }
+
+  /**
+   * Forget the derived key for this session without disabling passphrase mode.
+   */
+  const lockCredentials = () => {
+    lockPassphrase()
+    isUnlocked.value = false
+  }
+
   return {
     isPersistent,
+    hasPassphrase,
+    isUnlocked,
     setPersistence,
     saveCredentials,
     getCredentials,
     deleteCredentials,
-    clearAllCredentials
+    clearAllCredentials,
+    enablePassphrase,
+    unlockPassphrase,
+    disablePassphrase,
+    lockCredentials
   }
 }
 

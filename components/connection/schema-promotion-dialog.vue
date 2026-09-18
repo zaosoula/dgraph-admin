@@ -7,6 +7,15 @@ import {
 } from "@/composables/useSchemaPromotion";
 import { useConnectionsStore } from "@/stores/connections";
 import type { Connection } from "@/types/connection";
+import {
+  AlertTriangle,
+  ArrowRight,
+  CheckCircle2,
+  Download,
+  Loader2,
+  RotateCcw,
+  UploadCloud,
+} from "lucide-vue-next";
 
 const props = defineProps<{
   open: boolean;
@@ -19,12 +28,15 @@ const emit = defineEmits<{
 }>();
 
 const connectionsStore = useConnectionsStore();
-const { isPromoting, isComparing, compareSchemas, promoteSchema } =
+const { isPromoting, isComparing, compareSchemas, promoteSchema, restoreSchema } =
   useSchemaPromotion();
 
 const comparisonResult = ref<SchemaComparisonResult | null>(null);
 const promotionError = ref<string | null>(null);
 const promotionSuccess = ref(false);
+const backupSchema = ref<string | null>(null);
+const rollbackError = ref<string | null>(null);
+const rollbackSuccess = ref(false);
 
 const prodConnection = computed(() => {
   if (!props.devConnection.linkedProductionId) return null;
@@ -38,9 +50,9 @@ const canProceed = computed(() => {
 // Group differences by type for better display
 const groupedDifferences = computed(() => {
   if (!comparisonResult.value?.enhancedDifferences) return {};
-  
+
   const groups: Record<string, { typeKind: string; changes: SchemaDifference[] }> = {};
-  
+
   comparisonResult.value.enhancedDifferences.forEach(diff => {
     if (diff.context) {
       const key = `${diff.context.typeKind}_${diff.context.typeName}`;
@@ -53,22 +65,29 @@ const groupedDifferences = computed(() => {
       groups[key].changes.push(diff);
     }
   });
-  
+
   // Convert to display format with type names as keys
   const result: Record<string, { typeKind: string; changes: SchemaDifference[] }> = {};
   Object.entries(groups).forEach(([key, group]) => {
     const typeName = key.split('_').slice(1).join('_'); // Remove typeKind prefix
     result[typeName] = group;
   });
-  
+
   return result;
 });
 
 // Get differences without context (ungrouped)
 const ungroupedDifferences = computed(() => {
   if (!comparisonResult.value?.enhancedDifferences) return [];
-  
+
   return comparisonResult.value.enhancedDifferences.filter(diff => !diff.context);
+});
+
+// Total number of changes, for the summary line
+const changeCount = computed(() => {
+  const enhanced = comparisonResult.value?.enhancedDifferences
+  if (enhanced) return enhanced.length
+  return comparisonResult.value?.differences?.length ?? 0
 });
 
 // Compare schemas when dialog opens
@@ -86,7 +105,7 @@ const handleCompareSchemas = async () => {
     comparisonResult.value = result;
   } else {
     promotionError.value =
-      "Failed to compare schemas. Please check your connections.";
+      "Could not read one of the schemas. Check that both connections are reachable and try again.";
   }
 };
 
@@ -99,14 +118,58 @@ const handlePromoteSchema = async () => {
 
   const result = await promoteSchema(props.devConnection, prodConnection.value);
 
+  // Keep the captured production schema available so the user can download it
+  // or roll back. The dialog stays open until the user closes it explicitly.
+  backupSchema.value = result.backupSchema ?? null;
+
   if (result.success) {
     promotionSuccess.value = true;
     emit("promotion-success");
-    setTimeout(() => {
-      emit("update:open", false);
-    }, 2000);
   } else {
     promotionError.value = result.error || "Schema promotion failed";
+  }
+};
+
+const backupFileName = computed(() => {
+  const name = (prodConnection.value?.name || "production")
+    .replace(/[^a-z0-9-_]+/gi, "-")
+    .replace(/^-+|-+$/g, "")
+    .toLowerCase();
+  const stamp = new Date().toISOString().replace(/[:.]/g, "-");
+  return `${name || "production"}-schema-backup-${stamp}.graphql`;
+});
+
+// Download the pre-promotion production schema as a .graphql file
+const handleDownloadBackup = () => {
+  if (!backupSchema.value) return;
+
+  const blob = new Blob([backupSchema.value], {
+    type: "application/graphql;charset=utf-8",
+  });
+  const url = URL.createObjectURL(blob);
+  const link = document.createElement("a");
+  link.href = url;
+  link.download = backupFileName.value;
+  document.body.appendChild(link);
+  link.click();
+  document.body.removeChild(link);
+  URL.revokeObjectURL(url);
+};
+
+// Restore the captured backup onto production
+const handleRollback = async () => {
+  if (!prodConnection.value || !backupSchema.value) return;
+
+  rollbackError.value = null;
+  rollbackSuccess.value = false;
+
+  const result = await restoreSchema(prodConnection.value, backupSchema.value);
+
+  if (result.success) {
+    rollbackSuccess.value = true;
+    emit("promotion-success");
+  } else {
+    rollbackError.value = result.error || "Schema rollback failed";
   }
 };
 
@@ -116,6 +179,9 @@ const handleOpenChange = (open: boolean) => {
     comparisonResult.value = null;
     promotionError.value = null;
     promotionSuccess.value = false;
+    backupSchema.value = null;
+    rollbackError.value = null;
+    rollbackSuccess.value = false;
   }
   emit("update:open", open);
 };
@@ -127,347 +193,333 @@ const handleDialogOpen = () => {
   }
 };
 
-// Watch for dialog opening
+// Watch for dialog opening. `immediate` matters for the callers that mount this
+// component only once the dialog is already open (the dashboard), otherwise the
+// first comparison would never run.
 watch(
   () => props.open,
   (newValue) => {
     if (newValue) {
       handleDialogOpen();
     }
-  }
+  },
+  { immediate: true }
 );
 </script>
 
 <template>
   <UiDialog :open="open" @update:open="handleOpenChange">
-    <UiDialogContent
-      class="max-w-4xl max-h-[80vh] overflow-hidden flex flex-col"
-    >
-      <UiDialogHeader>
-        <UiDialogTitle>Promote Schema to Production</UiDialogTitle>
+    <UiDialogContent class="flex max-h-[85vh] max-w-3xl flex-col gap-0 overflow-hidden p-0">
+      <UiDialogHeader class="border-b border-border px-5 py-4">
+        <UiDialogTitle>Promote schema to production</UiDialogTitle>
         <UiDialogDescription>
-          Promote schema from <strong>{{ devConnection.name }}</strong> to
-          <strong>{{ prodConnection?.name || "Unknown" }}</strong>
+          The schema on the development database replaces the one on production. The
+          current production schema is captured first so you can roll back.
         </UiDialogDescription>
       </UiDialogHeader>
 
-      <div class="flex-1 overflow-auto space-y-4">
-        <!-- Loading State -->
-        <div v-if="isComparing" class="flex items-center justify-center py-8">
-          <div class="flex items-center space-x-2">
-            <div
-              class="animate-spin rounded-full h-6 w-6 border-b-2 border-primary"
-            ></div>
-            <span>Comparing schemas...</span>
-          </div>
+      <!-- Where this is going. The two endpoints stay visible the whole time. -->
+      <div
+        class="flex flex-wrap items-center gap-x-3 gap-y-1 border-b border-danger-border bg-danger-subtle px-5 py-2.5"
+      >
+        <span class="font-mono text-[13px] text-foreground">{{ devConnection.name }}</span>
+        <ArrowRight class="h-3.5 w-3.5 text-danger" />
+        <span class="font-mono text-[13px] font-medium text-danger">
+          {{ prodConnection?.name || "no linked production database" }}
+        </span>
+        <span v-if="prodConnection" class="truncate font-mono text-[11px] text-danger/80">
+          {{ prodConnection.url }}
+        </span>
+      </div>
+
+      <div class="min-h-0 flex-1 overflow-y-auto px-5 py-4">
+        <!-- Comparing -->
+        <div
+          v-if="isComparing"
+          class="flex items-center justify-center gap-2 py-12 text-[13px] text-muted-foreground"
+        >
+          <Loader2 class="h-4 w-4 animate-spin" />
+          Comparing the two schemas…
         </div>
 
-        <!-- Error State -->
+        <!-- Error -->
         <div
           v-else-if="promotionError"
-          class="p-4 bg-red-50 border border-red-200 rounded-md"
+          class="flex items-start gap-2.5 rounded-md border border-danger-border bg-danger-subtle px-3 py-3"
         >
-          <div class="flex items-center space-x-2">
-            <svg
-              class="w-5 h-5 text-red-500"
-              fill="none"
-              stroke="currentColor"
-              viewBox="0 0 24 24"
-            >
-              <path
-                stroke-linecap="round"
-                stroke-linejoin="round"
-                stroke-width="2"
-                d="M12 8v4m0 4h.01M21 12a9 9 0 11-18 0 9 9 0 0118 0z"
-              ></path>
-            </svg>
-            <span class="text-red-700 font-medium">Error</span>
+          <AlertTriangle class="mt-0.5 h-4 w-4 shrink-0 text-danger" />
+          <div class="min-w-0">
+            <p class="text-[13px] font-medium text-danger">Promotion did not run</p>
+            <p class="mt-0.5 text-xs leading-5 text-foreground/80">{{ promotionError }}</p>
           </div>
-          <p class="text-red-600 mt-1">{{ promotionError }}</p>
         </div>
 
-        <!-- Success State -->
-        <div
-          v-else-if="promotionSuccess"
-          class="p-4 bg-green-50 border border-green-200 rounded-md"
-        >
-          <div class="flex items-center space-x-2">
-            <svg
-              class="w-5 h-5 text-green-500"
-              fill="none"
-              stroke="currentColor"
-              viewBox="0 0 24 24"
-            >
-              <path
-                stroke-linecap="round"
-                stroke-linejoin="round"
-                stroke-width="2"
-                d="M5 13l4 4L19 7"
-              ></path>
-            </svg>
-            <span class="text-green-700 font-medium">Success!</span>
-          </div>
-          <p class="text-green-600 mt-1">
-            Schema has been successfully promoted to production.
-          </p>
-        </div>
-
-        <!-- Comparison Results -->
-        <div v-else-if="comparisonResult" class="space-y-4">
-          <!-- No Differences -->
+        <!-- Promoted -->
+        <div v-else-if="promotionSuccess" class="space-y-4">
           <div
-            v-if="!comparisonResult.hasDifferences"
-            class="p-4 bg-blue-50 border border-blue-200 rounded-md"
+            class="flex items-start gap-2.5 rounded-md border border-success-border bg-success-subtle px-3 py-3"
           >
-            <div class="flex items-center space-x-2">
-              <svg
-                class="w-5 h-5 text-blue-500"
-                fill="none"
-                stroke="currentColor"
-                viewBox="0 0 24 24"
-              >
-                <path
-                  stroke-linecap="round"
-                  stroke-linejoin="round"
-                  stroke-width="2"
-                  d="M13 16h-1v-4h-1m1-4h.01M21 12a9 9 0 11-18 0 9 9 0 0118 0z"
-                ></path>
-              </svg>
-              <span class="text-blue-700 font-medium">No Differences</span>
+            <CheckCircle2 class="mt-0.5 h-4 w-4 shrink-0 text-success" />
+            <div class="min-w-0">
+              <p class="text-[13px] font-medium text-success">
+                {{ prodConnection?.name || "Production" }} is now running the development
+                schema
+              </p>
+              <p class="mt-0.5 text-xs leading-5 text-foreground/80">
+                Close this dialog when you are done — the backup below is only kept while
+                it is open.
+              </p>
             </div>
-            <p class="text-blue-600 mt-1">
-              The development and production schemas are identical.
-            </p>
           </div>
 
-          <!-- Schema Differences -->
-          <div v-else class="space-y-4">
-            <div class="p-4 bg-yellow-50 border border-yellow-200 rounded-md">
-              <div class="flex items-center space-x-2">
-                <svg
-                  class="w-5 h-5 text-yellow-500"
-                  fill="none"
-                  stroke="currentColor"
-                  viewBox="0 0 24 24"
-                >
-                  <path
-                    stroke-linecap="round"
-                    stroke-linejoin="round"
-                    stroke-width="2"
-                    d="M12 9v2m0 4h.01m-6.938 4h13.856c1.54 0 2.502-1.667 1.732-2.5L13.732 4c-.77-.833-1.964-.833-2.732 0L3.732 16.5c-.77.833.192 2.5 1.732 2.5z"
-                  ></path>
-                </svg>
-                <span class="text-yellow-700 font-medium"
-                  >Schema Differences Detected</span
-                >
-              </div>
-              <p class="text-yellow-600 mt-1">
-                The following changes will be applied to the production schema:
+          <section class="rounded-md border border-border">
+            <div class="border-b border-border px-3 py-2.5">
+              <h4 class="text-[13px] font-medium">Backup of the previous schema</h4>
+              <p v-if="backupSchema" class="mt-0.5 text-xs text-muted-foreground">
+                Captured before the write,
+                <span class="font-mono">{{ backupSchema.length }}</span> characters.
+              </p>
+              <p v-else class="mt-0.5 text-xs text-muted-foreground">
+                No previous production schema was captured, so there is nothing to roll
+                back to.
               </p>
             </div>
 
-            <!-- Enhanced Differences List -->
+            <div v-if="backupSchema" class="space-y-3 px-3 py-3">
+              <div class="flex flex-wrap items-center gap-2">
+                <UiButton variant="outline" size="sm" @click="handleDownloadBackup">
+                  <Download class="h-3.5 w-3.5" />
+                  Download .graphql
+                </UiButton>
+                <UiButton
+                  variant="outline"
+                  size="sm"
+                  :disabled="isPromoting || rollbackSuccess"
+                  @click="handleRollback"
+                >
+                  <RotateCcw class="h-3.5 w-3.5" :class="{ 'animate-spin': isPromoting }" />
+                  {{ isPromoting ? "Restoring…" : "Restore this schema" }}
+                </UiButton>
+              </div>
+
+              <p v-if="rollbackSuccess" class="text-xs leading-5 text-success">
+                The previous production schema has been restored.
+              </p>
+              <p v-if="rollbackError" class="text-xs leading-5 text-danger">
+                {{ rollbackError }}
+              </p>
+
+              <details class="group">
+                <summary
+                  class="cursor-pointer text-xs text-muted-foreground transition-colors hover:text-foreground"
+                >
+                  View the backup
+                </summary>
+                <pre
+                  class="mt-2 max-h-48 overflow-auto rounded-md border border-border bg-muted px-3 py-2 font-mono text-[11px] leading-5 whitespace-pre-wrap"
+                >{{ backupSchema }}</pre>
+              </details>
+            </div>
+          </section>
+        </div>
+
+        <!-- Nothing compared yet -->
+        <div v-else-if="!comparisonResult" class="py-10 text-center">
+          <p class="text-[13px] font-medium">
+            {{ prodConnection ? "No comparison yet" : "No linked production database" }}
+          </p>
+          <p class="mx-auto mt-1 max-w-sm text-xs leading-5 text-muted-foreground">
+            {{
+              prodConnection
+                ? "Compare the two schemas to see exactly what promoting would write to production."
+                : "Edit this development connection and choose the production connection it should promote to."
+            }}
+          </p>
+        </div>
+
+        <!-- Comparison -->
+        <div v-else class="space-y-4">
+          <div
+            v-if="!comparisonResult.hasDifferences"
+            class="flex items-start gap-2.5 rounded-md border border-border bg-muted px-3 py-3"
+          >
+            <CheckCircle2 class="mt-0.5 h-4 w-4 shrink-0 text-success" />
+            <div>
+              <p class="text-[13px] font-medium">The two schemas are identical</p>
+              <p class="mt-0.5 text-xs leading-5 text-muted-foreground">
+                Promoting would not change anything on production.
+              </p>
+            </div>
+          </div>
+
+          <template v-else>
+            <div class="flex flex-wrap items-baseline justify-between gap-2">
+              <h4 class="text-[13px] font-medium">
+                {{ changeCount }} {{ changeCount === 1 ? "change" : "changes" }} will be
+                written to production
+              </h4>
+              <p class="text-xs text-muted-foreground">
+                Lines marked <span class="font-mono text-success">+</span> are added,
+                <span class="font-mono text-danger">−</span> removed.
+              </p>
+            </div>
+
+            <!-- Grouped by the type each change belongs to -->
             <div
               v-if="comparisonResult.enhancedDifferences"
-              class="bg-gray-50 border rounded-md p-4"
+              class="space-y-2 overflow-hidden"
             >
-              <h4 class="font-medium text-sm mb-2">Changes:</h4>
-              <div class="space-y-4 text-sm max-h-60 overflow-auto">
+              <div
+                v-for="(group, typeName) in groupedDifferences"
+                :key="typeName"
+                class="overflow-hidden rounded-md border border-border"
+              >
                 <div
-                  v-for="(group, typeName) in groupedDifferences"
-                  :key="typeName"
-                  class="bg-white border rounded-md p-3"
+                  class="flex items-center gap-2 border-b border-border bg-muted px-3 py-1.5"
                 >
-                  <!-- Type Header -->
-                  <div class="flex items-center space-x-2 mb-2">
+                  <StatusBadge tone="neutral" variant="outline" mono>
+                    {{ group.typeKind }}
+                  </StatusBadge>
+                  <span class="truncate font-mono text-[13px] font-medium">
+                    {{ typeName }}
+                  </span>
+                </div>
+
+                <ul class="divide-y divide-border">
+                  <li
+                    v-for="(diff, index) in group.changes"
+                    :key="index"
+                    class="flex items-start gap-2 px-3 py-1.5 font-mono text-xs leading-5"
+                    :class="diff.type === 'added' ? 'bg-success-subtle' : 'bg-danger-subtle'"
+                  >
                     <span
-                      class="inline-flex items-center px-2 py-1 rounded text-xs font-medium bg-blue-100 text-blue-800"
+                      class="shrink-0 font-medium"
+                      :class="diff.type === 'added' ? 'text-success' : 'text-danger'"
                     >
-                      {{ group.typeKind }}
+                      {{ diff.type === 'added' ? '+' : '−' }}
                     </span>
-                    <span class="font-mono font-medium text-gray-900">{{ typeName }}</span>
-                    <span class="text-gray-500">{</span>
-                  </div>
-                  
-                  <!-- Changes within this type -->
-                  <div class="ml-4 space-y-1 font-mono text-sm">
-                    <div
-                      v-for="(diff, index) in group.changes"
-                      :key="index"
-                      class="flex items-start space-x-2"
+                    <span
+                      class="min-w-0 break-all"
+                      :class="diff.type === 'added' ? 'text-success' : 'text-danger'"
                     >
-                      <span
-                        class="inline-flex items-center justify-center w-4 h-4 rounded text-xs font-bold flex-shrink-0 mt-0.5"
-                        :class="{
-                          'bg-green-100 text-green-700': diff.type === 'added',
-                          'bg-red-100 text-red-700': diff.type === 'removed',
-                        }"
-                      >
-                        {{ diff.type === 'added' ? '+' : '-' }}
-                      </span>
-                      <span
-                        class="break-all"
-                        :class="{
-                          'text-green-700': diff.type === 'added',
-                          'text-red-700': diff.type === 'removed',
-                        }"
-                      >
-                        {{ diff.line }}
-                      </span>
-                    </div>
-                  </div>
-                  
-                  <!-- Closing brace -->
-                  <div class="text-gray-500 mt-2">}</div>
+                      {{ diff.line }}
+                    </span>
+                  </li>
+                </ul>
+              </div>
+
+              <div
+                v-if="ungroupedDifferences.length > 0"
+                class="overflow-hidden rounded-md border border-border"
+              >
+                <div class="border-b border-border bg-muted px-3 py-1.5">
+                  <span class="text-[13px] font-medium">Outside any type</span>
                 </div>
-                
-                <!-- Ungrouped changes (without context) -->
-                <div
-                  v-if="ungroupedDifferences.length > 0"
-                  class="bg-white border rounded-md p-3"
-                >
-                  <div class="text-sm font-medium text-gray-700 mb-2">Other Changes:</div>
-                  <div class="space-y-1 font-mono text-sm">
-                    <div
-                      v-for="(diff, index) in ungroupedDifferences"
-                      :key="index"
-                      class="flex items-start space-x-2"
+                <ul class="divide-y divide-border">
+                  <li
+                    v-for="(diff, index) in ungroupedDifferences"
+                    :key="index"
+                    class="flex items-start gap-2 px-3 py-1.5 font-mono text-xs leading-5"
+                    :class="diff.type === 'added' ? 'bg-success-subtle' : 'bg-danger-subtle'"
+                  >
+                    <span
+                      class="shrink-0 font-medium"
+                      :class="diff.type === 'added' ? 'text-success' : 'text-danger'"
                     >
-                      <span
-                        class="inline-flex items-center justify-center w-4 h-4 rounded text-xs font-bold flex-shrink-0 mt-0.5"
-                        :class="{
-                          'bg-green-100 text-green-700': diff.type === 'added',
-                          'bg-red-100 text-red-700': diff.type === 'removed',
-                        }"
-                      >
-                        {{ diff.type === 'added' ? '+' : '-' }}
-                      </span>
-                      <span
-                        class="break-all"
-                        :class="{
-                          'text-green-700': diff.type === 'added',
-                          'text-red-700': diff.type === 'removed',
-                        }"
-                      >
-                        {{ diff.line }}
-                      </span>
-                    </div>
-                  </div>
-                </div>
+                      {{ diff.type === 'added' ? '+' : '−' }}
+                    </span>
+                    <span
+                      class="min-w-0 break-all"
+                      :class="diff.type === 'added' ? 'text-success' : 'text-danger'"
+                    >
+                      {{ diff.line }}
+                    </span>
+                  </li>
+                </ul>
               </div>
             </div>
 
-            <!-- Fallback to Basic Differences List -->
+            <!-- Fallback when the parser could not attribute changes to types -->
             <div
               v-else-if="comparisonResult.differences"
-              class="bg-gray-50 border rounded-md p-4"
+              class="overflow-hidden rounded-md border border-border"
             >
-              <h4 class="font-medium text-sm mb-2">Changes:</h4>
-              <div class="space-y-1 font-mono text-sm max-h-40 overflow-auto">
-                <div
+              <div class="border-b border-border bg-muted px-3 py-1.5">
+                <span class="text-[13px] font-medium">Changes</span>
+              </div>
+              <ul class="max-h-56 divide-y divide-border overflow-auto">
+                <li
                   v-for="(diff, index) in comparisonResult.differences"
                   :key="index"
+                  class="px-3 py-1.5 font-mono text-xs leading-5 break-all"
                   :class="{
-                    'text-green-600': diff.startsWith('+'),
-                    'text-red-600': diff.startsWith('-'),
+                    'bg-success-subtle text-success': diff.startsWith('+'),
+                    'bg-danger-subtle text-danger': diff.startsWith('-'),
                   }"
                 >
                   {{ diff }}
-                </div>
-              </div>
+                </li>
+              </ul>
             </div>
 
-            <!-- Schema Preview -->
-            <div class="grid grid-cols-2 gap-4">
-              <div>
-                <h4 class="font-medium text-sm mb-2">Development Schema</h4>
-                <div
-                  class="bg-gray-50 border rounded-md p-3 max-h-40 overflow-auto"
-                >
-                  <pre class="text-xs font-mono whitespace-pre-wrap">{{
-                    comparisonResult.devSchema || "No schema"
-                  }}</pre>
+            <!-- The two schemas, side by side -->
+            <div class="grid gap-3 sm:grid-cols-2">
+              <div class="min-w-0 overflow-hidden rounded-md border border-border">
+                <div class="border-b border-border bg-muted px-3 py-1.5">
+                  <span class="font-mono text-[11px] text-muted-foreground">
+                    {{ devConnection.name }}
+                  </span>
                 </div>
+                <pre
+                  class="max-h-44 overflow-auto px-3 py-2 font-mono text-[11px] leading-5 whitespace-pre-wrap"
+                >{{ comparisonResult.devSchema || "No schema" }}</pre>
               </div>
-              <div>
-                <h4 class="font-medium text-sm mb-2">
-                  Production Schema (Current)
-                </h4>
-                <div
-                  class="bg-gray-50 border rounded-md p-3 max-h-40 overflow-auto"
-                >
-                  <pre class="text-xs font-mono whitespace-pre-wrap">{{
-                    comparisonResult.prodSchema || "No schema"
-                  }}</pre>
+
+              <div class="min-w-0 overflow-hidden rounded-md border border-border">
+                <div class="border-b border-border bg-muted px-3 py-1.5">
+                  <span class="font-mono text-[11px] text-muted-foreground">
+                    {{ prodConnection?.name || "production" }} (current)
+                  </span>
                 </div>
+                <pre
+                  class="max-h-44 overflow-auto px-3 py-2 font-mono text-[11px] leading-5 whitespace-pre-wrap"
+                >{{ comparisonResult.prodSchema || "No schema" }}</pre>
               </div>
             </div>
-          </div>
+          </template>
         </div>
       </div>
 
-      <UiDialogFooter class="flex justify-between">
+      <UiDialogFooter class="border-t border-border px-5 py-3 sm:justify-between">
         <UiButton
           variant="outline"
-          @click="handleOpenChange(false)"
+          size="sm"
           :disabled="isPromoting"
+          @click="handleOpenChange(false)"
         >
-          Cancel
+          {{ promotionSuccess ? "Close" : "Cancel" }}
         </UiButton>
-        <div class="space-x-2">
+
+        <div v-if="!promotionSuccess" class="flex gap-2">
           <UiButton
             variant="outline"
-            @click="handleCompareSchemas"
+            size="sm"
             :disabled="isComparing || isPromoting"
+            @click="handleCompareSchemas"
           >
-            <svg
-              v-if="isComparing"
-              class="animate-spin -ml-1 mr-2 h-4 w-4"
-              fill="none"
-              viewBox="0 0 24 24"
-            >
-              <circle
-                class="opacity-25"
-                cx="12"
-                cy="12"
-                r="10"
-                stroke="currentColor"
-                stroke-width="4"
-              ></circle>
-              <path
-                class="opacity-75"
-                fill="currentColor"
-                d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4zm2 5.291A7.962 7.962 0 014 12H0c0 3.042 1.135 5.824 3 7.938l3-2.647z"
-              ></path>
-            </svg>
-            Refresh Comparison
+            <Loader2 v-if="isComparing" class="h-3.5 w-3.5 animate-spin" />
+            Compare again
           </UiButton>
+
           <UiButton
-            @click="handlePromoteSchema"
+            variant="destructive"
+            size="sm"
             :disabled="!canProceed || promotionSuccess"
-            class="bg-red-600 hover:bg-red-700 text-white"
+            @click="handlePromoteSchema"
           >
-            <svg
-              v-if="isPromoting"
-              class="animate-spin -ml-1 mr-2 h-4 w-4"
-              fill="none"
-              viewBox="0 0 24 24"
-            >
-              <circle
-                class="opacity-25"
-                cx="12"
-                cy="12"
-                r="10"
-                stroke="currentColor"
-                stroke-width="4"
-              ></circle>
-              <path
-                class="opacity-75"
-                fill="currentColor"
-                d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4zm2 5.291A7.962 7.962 0 014 12H0c0 3.042 1.135 5.824 3 7.938l3-2.647z"
-              ></path>
-            </svg>
-            {{ isPromoting ? "Promoting..." : "Promote to Production" }}
+            <Loader2 v-if="isPromoting" class="h-3.5 w-3.5 animate-spin" />
+            <UploadCloud v-else class="h-3.5 w-3.5" />
+            {{ isPromoting ? "Promoting…" : `Promote to ${prodConnection?.name || "production"}` }}
           </UiButton>
         </div>
       </UiDialogFooter>

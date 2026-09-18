@@ -1,5 +1,6 @@
 <script setup lang="ts">
 import { ref } from 'vue'
+import { FileJson, Upload } from 'lucide-vue-next'
 import { useConnectionExportImport } from '@/composables/useConnectionExportImport'
 import type { ConnectionImportResult } from '@/composables/useConnectionExportImport'
 
@@ -59,15 +60,21 @@ const cancelImport = () => {
 
 <template>
   <div class="space-y-6">
-    <div class="space-y-2">
-      <h3 class="text-lg font-medium">Import Connections</h3>
-      <p class="text-sm text-muted-foreground">
-        Import connections from a JSON file. The file should be in the format exported by Dgraph Admin.
+    <div class="space-y-1.5">
+      <p class="max-w-prose text-xs leading-5 text-muted-foreground">
+        Choose a JSON file exported by Dgraph Admin. A file exported without credentials
+        brings in the connections only, so you will need to enter passwords, tokens and
+        API keys again afterwards.
+      </p>
+      <p class="max-w-prose text-xs leading-5 text-muted-foreground">
+        A file exported <em>with</em> credentials holds them in plaintext. Delete it once
+        the import is done.
       </p>
     </div>
 
-    <div 
-      class="border-2 border-dashed rounded-md p-6 text-center cursor-pointer hover:bg-muted/50 transition-colors"
+    <button
+      type="button"
+      class="flex w-full cursor-pointer flex-col items-center gap-2 rounded-md border border-dashed border-border-strong px-6 py-8 text-center transition-colors hover:bg-accent/40"
       @click="selectFile"
     >
       <input 
@@ -78,38 +85,35 @@ const cancelImport = () => {
         @change="handleFileChange"
       />
       
-      <div v-if="!selectedFile" class="space-y-2">
-        <div class="text-3xl mb-2">📁</div>
-        <p class="text-sm font-medium">Click to select a file or drag and drop</p>
-        <p class="text-xs text-muted-foreground">Supports JSON files</p>
-      </div>
-      
-      <div v-else class="space-y-2">
-        <div class="text-3xl mb-2">📄</div>
-        <p class="text-sm font-medium">{{ selectedFile.name }}</p>
-        <p class="text-xs text-muted-foreground">{{ Math.round(selectedFile.size / 1024) }} KB</p>
-      </div>
-    </div>
+      <template v-if="!selectedFile">
+        <Upload class="h-5 w-5 text-muted-foreground" />
+        <span class="text-[13px] font-medium">Choose a JSON file</span>
+        <span class="text-xs text-muted-foreground">Exported from Dgraph Admin</span>
+      </template>
+
+      <template v-else>
+        <FileJson class="h-5 w-5 text-muted-foreground" />
+        <span class="font-mono text-[13px] font-medium">{{ selectedFile.name }}</span>
+        <span class="font-mono text-xs text-muted-foreground">
+          {{ Math.round(selectedFile.size / 1024) }} KB
+        </span>
+      </template>
+    </button>
     
-    <div v-if="importError" class="p-4 rounded-md bg-red-50 text-red-700 text-sm">
+    <div
+      v-if="importError"
+      class="rounded-md border border-danger-border bg-danger-subtle px-3 py-2.5 text-[13px] text-danger"
+    >
       {{ importError }}
     </div>
     
-    <div class="flex justify-end space-x-2">
-      <UiButton 
-        variant="outline" 
-        @click="cancelImport" 
-        :disabled="isLoading"
-      >
+    <div class="flex justify-end gap-2 border-t border-border pt-4">
+      <UiButton variant="outline" size="sm" :disabled="isLoading" @click="cancelImport">
         Cancel
       </UiButton>
-      
-      <UiButton 
-        @click="importFile" 
-        :disabled="isLoading || !selectedFile"
-      >
-        <span v-if="isLoading">Importing...</span>
-        <span v-else>Import</span>
+
+      <UiButton size="sm" :disabled="isLoading || !selectedFile" @click="importFile">
+        {{ isLoading ? "Importing…" : "Import connections" }}
       </UiButton>
     </div>
   </div>

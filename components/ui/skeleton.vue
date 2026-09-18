@@ -1,4 +1,6 @@
 <script setup lang="ts">
+import { computed } from 'vue'
+
 interface Props {
   class?: string
   width?: string
@@ -12,29 +14,29 @@ const props = withDefaults(defineProps<Props>(), {
 })
 
 const skeletonClasses = computed(() => {
-  const base = 'bg-muted shimmer'
-  const roundedClass = props.rounded ? 'rounded' : ''
-  
+  const base = 'bg-muted animate-pulse'
+  const roundedClass = props.rounded ? 'rounded-md' : ''
+
   return `${base} ${roundedClass} ${props.class}`
 })
 
 const skeletonStyles = computed(() => {
   const styles: Record<string, string> = {}
-  
+
   if (props.width) {
     styles.width = props.width
   }
-  
+
   if (props.height) {
     styles.height = props.height
   }
-  
+
   return styles
 })
 </script>
 
 <template>
-  <div 
+  <div
     :class="skeletonClasses"
     :style="skeletonStyles"
   />

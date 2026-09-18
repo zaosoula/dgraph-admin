@@ -1,8 +1,10 @@
 <script setup lang="ts">
-import { computed } from 'vue'
+import { computed, ref } from 'vue'
 import { useConnectionsStore } from '@/stores/connections'
 import { useDgraphClient } from '@/composables/useDgraphClient'
 import { useConnectionExportImport } from '@/composables/useConnectionExportImport'
+import { connectionTone, connectionStatusLabel } from '@/components/status'
+import { Link2, Check } from 'lucide-vue-next'
 
 const emit = defineEmits<{
   'edit': [id: string]
@@ -28,148 +30,229 @@ const testConnection = async (id: string) => {
 }
 
 // Export connection
-const handleExportConnection = (id: string, event: Event) => {
+const exportTargetId = ref<string | null>(null)
+const exportIncludeCredentials = ref(false)
+
+const exportTarget = computed(() => {
+  if (!exportTargetId.value) return null
+  return connections.value.find(conn => conn.id === exportTargetId.value) || null
+})
+
+const openExportDialog = (id: string, event: Event) => {
   event.stopPropagation()
-  exportConnection(id)
+  exportTargetId.value = id
+  // Credentials are left out unless the user opts in on this dialog
+  exportIncludeCredentials.value = false
+}
+
+const cancelExport = () => {
+  exportTargetId.value = null
+}
+
+const confirmExport = () => {
+  if (!exportTargetId.value) return
+  exportConnection(exportTargetId.value, {
+    includeCredentials: exportIncludeCredentials.value
+  })
+  exportTargetId.value = null
+}
+
+const handleExportOpenChange = (open: boolean) => {
+  if (!open) cancelExport()
 }
 
 // Format date
 const formatDate = (date: Date) => {
   return new Date(date).toLocaleString()
 }
+
+const linkedName = (id: string) =>
+  connectionsStore.getLinkedProduction(id)?.name || 'an unknown connection'
+
+const endpointChecks = (id: string) => {
+  const results = connectionsStore.connectionStates[id]?.testResults
+  if (!results) return null
+  return [
+    { label: 'Admin health', result: results.adminHealth },
+    { label: 'Schema read', result: results.adminSchemaRead },
+    { label: 'Client query', result: results.clientIntrospection }
+  ]
+}
 </script>
 
 <template>
   <div>
-    <div v-if="connections.length === 0" class="text-center py-8">
-      <p class="text-muted-foreground">No connections added yet.</p>
+    <div
+      v-if="connections.length === 0"
+      class="rounded-lg border border-border bg-card px-4 py-8"
+    >
+      <p class="text-[13px] font-medium">No connections yet</p>
+      <p class="mt-1 max-w-prose text-xs leading-5 text-muted-foreground">
+        Add a Dgraph endpoint to read its schema, keep a version history, and promote
+        changes from development to production.
+      </p>
     </div>
-    
-    <div v-else class="space-y-4">
-      <UiCard 
-        v-for="connection in connections" 
+
+    <ul v-else class="divide-y divide-border overflow-hidden rounded-lg border border-border bg-card">
+      <li
+        v-for="connection in connections"
         :key="connection.id"
-        :class="[
-          'cursor-pointer transition-colors',
-          activeConnectionId === connection.id ? 'border-primary' : 'hover:border-muted-foreground'
-        ]"
+        class="cursor-pointer px-4 py-3.5 transition-colors"
+        :class="activeConnectionId === connection.id ? 'bg-accent/50' : 'hover:bg-accent/30'"
         @click="setActiveConnection(connection.id)"
       >
-        <UiCardHeader class="flex flex-row items-center justify-between pb-2">
-          <div class="flex items-center space-x-2">
-            <UiCardTitle>{{ connection.name }}</UiCardTitle>
-            <span 
-              v-if="connection.environment"
-              class="inline-flex items-center px-2 py-1 rounded-full text-xs font-medium"
-              :class="{
-                'bg-blue-100 text-blue-800 dark:bg-blue-900 dark:text-blue-200': connection.environment === 'Development',
-                'bg-green-100 text-green-800 dark:bg-green-900 dark:text-green-200': connection.environment === 'Production'
-              }"
+        <div class="flex flex-wrap items-start justify-between gap-x-4 gap-y-2">
+          <div class="min-w-0 flex-1">
+            <div class="flex min-w-0 flex-wrap items-center gap-2">
+              <StatusDot
+                :tone="connectionTone(connectionsStore.connectionStates[connection.id])"
+                size="md"
+              />
+              <span class="truncate font-mono text-[13px] font-medium">
+                {{ connection.name }}
+              </span>
+
+              <StatusBadge
+                v-if="connection.environment === 'Production'"
+                tone="warning"
+                variant="outline"
+              >
+                Production
+              </StatusBadge>
+              <StatusBadge v-else-if="connection.environment" tone="neutral" variant="outline">
+                {{ connection.environment }}
+              </StatusBadge>
+
+              <StatusBadge
+                v-if="connection.linkedProductionId"
+                tone="neutral"
+                variant="outline"
+              >
+                <Link2 class="h-3 w-3" />
+                Promotes to {{ linkedName(connection.id) }}
+              </StatusBadge>
+
+              <StatusBadge v-if="activeConnectionId === connection.id" tone="info">
+                <Check class="h-3 w-3" />
+                Active
+              </StatusBadge>
+            </div>
+
+            <p class="mt-1 truncate font-mono text-xs text-muted-foreground">
+              {{ connection.url }}
+            </p>
+
+            <div class="mt-1.5 flex flex-wrap items-center gap-x-4 gap-y-1 text-xs text-muted-foreground">
+              <span>{{ connectionStatusLabel(connectionsStore.connectionStates[connection.id]) }}</span>
+              <span>{{ connection.type.toUpperCase() }}</span>
+              <span>{{ connection.isSecure ? 'Authenticated' : 'No authentication' }}</span>
+              <span>Updated {{ formatDate(connection.updatedAt) }}</span>
+            </div>
+
+            <!-- Per-endpoint results from the last test -->
+            <div
+              v-if="endpointChecks(connection.id)"
+              class="mt-2 flex flex-wrap gap-x-4 gap-y-1"
             >
-              {{ connection.environment }}
-            </span>
-            <!-- Linked Production Indicator -->
-            <span 
-              v-if="connection.environment === 'Development' && connection.linkedProductionId"
-              class="inline-flex items-center px-2 py-1 rounded-full text-xs font-medium bg-purple-100 text-purple-800 dark:bg-purple-900 dark:text-purple-200"
-              :title="`Linked to: ${connectionsStore.getLinkedProduction(connection.id)?.name || 'Unknown'}`"
-            >
-              <svg class="w-3 h-3 mr-1" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M13.828 10.172a4 4 0 00-5.656 0l-4 4a4 4 0 105.656 5.656l1.102-1.102m0 0l4-4a4 4 0 105.656-5.656l-1.102 1.102m-2.554 2.554l-4 4"></path>
-              </svg>
-              Linked
-            </span>
-          </div>
-          <div 
-            class="h-3 w-3 rounded-full" 
-            :class="connectionsStore.connectionStates[connection.id]?.isConnected ? 'bg-green-500' : 'bg-red-500'"
-            v-if="connectionsStore.connectionStates[connection.id]?.lastChecked"
-          ></div>
-        </UiCardHeader>
-        
-        <UiCardContent>
-          <div class="grid grid-cols-2 gap-2 text-sm">
-            <div class="text-muted-foreground">URL:</div>
-            <div class="truncate">{{ connection.url }}</div>
-            
-            <div class="text-muted-foreground">Type:</div>
-            <div>{{ connection.type.toUpperCase() }}</div>
-            
-            <div class="text-muted-foreground">Secure:</div>
-            <div>{{ connection.isSecure ? 'Yes' : 'No' }}</div>
-            
-            <div class="text-muted-foreground">Last Updated:</div>
-            <div>{{ formatDate(connection.updatedAt) }}</div>
-          </div>
-          
-          <!-- Detailed Test Results -->
-          <div v-if="connectionsStore.connectionStates[connection.id]?.testResults" class="mt-4 pt-4 border-t">
-            <div class="text-sm font-medium mb-2">Connection Status:</div>
-            <div class="grid grid-cols-3 gap-2 text-xs">
-              <div class="flex items-center space-x-1">
-                <div 
-                  class="h-2 w-2 rounded-full" 
-                  :class="connectionsStore.connectionStates[connection.id]?.testResults?.adminHealth.success ? 'bg-green-500' : 'bg-red-500'"
-                ></div>
-                <span class="text-muted-foreground">Admin</span>
-              </div>
-              <div class="flex items-center space-x-1">
-                <div 
-                  class="h-2 w-2 rounded-full" 
-                  :class="connectionsStore.connectionStates[connection.id]?.testResults?.adminSchemaRead.success ? 'bg-green-500' : 'bg-red-500'"
-                ></div>
-                <span class="text-muted-foreground">Schema</span>
-              </div>
-              <div class="flex items-center space-x-1">
-                <div 
-                  class="h-2 w-2 rounded-full" 
-                  :class="connectionsStore.connectionStates[connection.id]?.testResults?.clientIntrospection.success ? 'bg-green-500' : 'bg-red-500'"
-                ></div>
-                <span class="text-muted-foreground">Client</span>
-              </div>
+              <span
+                v-for="check in endpointChecks(connection.id)"
+                :key="check.label"
+                class="flex items-center gap-1.5 text-xs"
+                :class="check.result.success ? 'text-muted-foreground' : 'text-danger'"
+                :title="check.result.error || `${check.result.responseTime}ms`"
+              >
+                <StatusDot :tone="check.result.success ? 'success' : 'danger'" />
+                {{ check.label }}
+                <span class="font-mono text-[11px] text-muted-foreground">
+                  {{ check.result.responseTime }}ms
+                </span>
+              </span>
             </div>
           </div>
-        </UiCardContent>
-        
-        <UiCardFooter class="flex justify-between">
-          <UiButton 
-            variant="outline" 
-            size="sm"
-            @click.stop="testConnection(connection.id)"
-            :disabled="connectionsStore.connectionStates[connection.id]?.isLoading"
-          >
-            <span v-if="connectionsStore.connectionStates[connection.id]?.isLoading">Testing...</span>
-            <span v-else>Test Connection</span>
-          </UiButton>
-          
-          <div class="flex space-x-2">
-            <UiButton 
-              variant="outline" 
+
+          <div class="flex shrink-0 flex-wrap items-center gap-1.5">
+            <UiButton
+              variant="outline"
               size="sm"
-              @click.stop="handleExportConnection(connection.id, $event)"
-              title="Export Connection"
+              :disabled="connectionsStore.connectionStates[connection.id]?.isLoading"
+              @click.stop="testConnection(connection.id)"
+            >
+              {{ connectionsStore.connectionStates[connection.id]?.isLoading ? 'Testing…' : 'Test' }}
+            </UiButton>
+
+            <UiButton
+              variant="ghost"
+              size="sm"
+              title="Export connection"
+              @click.stop="openExportDialog(connection.id, $event)"
             >
               Export
             </UiButton>
-            
-            <UiButton 
-              variant="outline" 
-              size="sm"
-              @click.stop="emit('edit', connection.id)"
-            >
+
+            <UiButton variant="ghost" size="sm" @click.stop="emit('edit', connection.id)">
               Edit
             </UiButton>
-            
-            <UiButton 
-              variant="destructive" 
+
+            <UiButton
+              variant="ghost"
               size="sm"
+              class="text-danger hover:bg-danger-subtle hover:text-danger"
               @click.stop="emit('delete', connection.id)"
             >
               Delete
             </UiButton>
           </div>
-        </UiCardFooter>
-      </UiCard>
-    </div>
+        </div>
+      </li>
+    </ul>
+
+    <!-- Export dialog -->
+    <UiDialog :open="!!exportTarget" @update:open="handleExportOpenChange">
+      <UiDialogContent v-if="exportTarget" @click.stop>
+        <UiDialogHeader>
+          <UiDialogTitle>Export {{ exportTarget.name }}</UiDialogTitle>
+          <UiDialogDescription>
+            The connection is written to an unencrypted JSON file in your downloads
+            folder.
+          </UiDialogDescription>
+        </UiDialogHeader>
+
+        <label class="flex cursor-pointer items-start gap-2 text-[13px]">
+          <input
+            v-model="exportIncludeCredentials"
+            type="checkbox"
+            class="mt-0.5 h-3.5 w-3.5 rounded border-input accent-primary"
+          />
+          <span>
+            <span class="font-medium">Include credentials</span>
+            <span class="block text-xs text-muted-foreground">
+              Passwords, tokens and API keys for this connection.
+            </span>
+          </span>
+        </label>
+
+        <div
+          v-if="exportIncludeCredentials"
+          class="rounded-md border border-danger-border bg-danger-subtle p-3 text-xs leading-5 text-danger"
+        >
+          <p class="font-medium">The exported file will contain secrets in plaintext.</p>
+          <p class="mt-1">
+            Anyone who can read the file can use these credentials. Store it somewhere
+            you would keep a password, and delete it once you have imported it.
+          </p>
+        </div>
+
+        <UiDialogFooter>
+          <UiButton variant="outline" size="sm" @click="cancelExport">Cancel</UiButton>
+          <UiButton
+            size="sm"
+            :variant="exportIncludeCredentials ? 'destructive' : 'default'"
+            @click="confirmExport"
+          >
+            Export
+          </UiButton>
+        </UiDialogFooter>
+      </UiDialogContent>
+    </UiDialog>
   </div>
 </template>

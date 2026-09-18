@@ -1,10 +1,11 @@
 <script setup lang="ts">
-import { ref } from 'vue'
+import { computed, ref } from 'vue'
 import { useConnectionsStore } from '@/stores/connections'
 import { useCredentialStorage } from '@/composables/useCredentialStorage'
 import { useConnectionExportImport } from '@/composables/useConnectionExportImport'
-import type { Connection } from '@/types/connection'
+import { useToast } from '@/components/ui/toast'
 import type { ConnectionImportResult } from '@/composables/useConnectionExportImport'
+import { Plus, Download, Upload } from 'lucide-vue-next'
 
 useHead({
   title: 'Dgraph Admin - Connections',
@@ -16,6 +17,7 @@ useHead({
 const connectionsStore = useConnectionsStore()
 const credentialStorage = useCredentialStorage()
 const { exportConnection, exportAllConnections } = useConnectionExportImport()
+const toast = useToast()
 
 // UI state
 const isAddingConnection = ref(false)
@@ -25,6 +27,7 @@ const editingConnectionId = ref<string | null>(null)
 const showDeleteConfirm = ref(false)
 const deletingConnectionId = ref<string | null>(null)
 const showExportMenu = ref(false)
+const exportIncludeCredentials = ref(false)
 const importResult = ref<ConnectionImportResult | null>(null)
 
 // Get connection for editing
@@ -32,6 +35,15 @@ const editingConnection = computed(() => {
   if (!editingConnectionId.value) return null
   return connectionsStore.connections.find(conn => conn.id === editingConnectionId.value) || null
 })
+
+const deletingConnection = computed(() => {
+  if (!deletingConnectionId.value) return null
+  return connectionsStore.connections.find(conn => conn.id === deletingConnectionId.value) || null
+})
+
+const isShowingForm = computed(
+  () => isAddingConnection.value || isEditingConnection.value || isImportingConnections.value
+)
 
 // Add new connection
 const addConnection = () => {
@@ -68,35 +80,79 @@ const confirmDelete = (id: string) => {
 
 const deleteConnection = () => {
   if (!deletingConnectionId.value) return
-  
+
+  const name = deletingConnection.value?.name
+
   // Delete credentials first
   credentialStorage.deleteCredentials(deletingConnectionId.value)
-  
+
   // Then delete the connection
   connectionsStore.removeConnection(deletingConnectionId.value)
-  
+
   // Reset UI state
   showDeleteConfirm.value = false
   deletingConnectionId.value = null
+
+  toast.info(
+    'Connection deleted',
+    name ? `${name} and its stored credentials were removed.` : undefined
+  )
 }
 
 // Export connections
-const handleExportConnection = (id: string) => {
-  exportConnection(id)
+const openExportMenu = () => {
+  showExportMenu.value = true
+  // Credentials are excluded unless the user opts in each time
+  exportIncludeCredentials.value = false
+}
+
+const closeExportMenu = () => {
   showExportMenu.value = false
+  exportIncludeCredentials.value = false
+}
+
+const handleExportOpenChange = (open: boolean) => {
+  if (open) {
+    openExportMenu()
+  } else {
+    closeExportMenu()
+  }
+}
+
+const handleExportConnection = (id: string) => {
+  const name = connectionsStore.connections.find(conn => conn.id === id)?.name
+  exportConnection(id, { includeCredentials: exportIncludeCredentials.value })
+  const withCredentials = exportIncludeCredentials.value
+  closeExportMenu()
+  toast.info(
+    `Exported ${name ?? 'connection'}`,
+    withCredentials
+      ? 'The file contains credentials in plaintext. Delete it once imported.'
+      : 'Credentials were left out of the file.'
+  )
 }
 
 const handleExportAllConnections = () => {
-  exportAllConnections()
-  showExportMenu.value = false
+  const count = connectionsStore.connections.length
+  exportAllConnections({ includeCredentials: exportIncludeCredentials.value })
+  const withCredentials = exportIncludeCredentials.value
+  closeExportMenu()
+  toast.info(
+    `Exported ${count} connections`,
+    withCredentials
+      ? 'The file contains credentials in plaintext. Delete it once imported.'
+      : 'Credentials were left out of the file.'
+  )
 }
 
 // Handle form actions
-const handleConnectionSaved = (connectionId: string) => {
+const handleConnectionSaved = (_connectionId: string) => {
+  const wasEditing = isEditingConnection.value
   isAddingConnection.value = false
   isEditingConnection.value = false
   isImportingConnections.value = false
   editingConnectionId.value = null
+  toast.success(wasEditing ? 'Connection updated' : 'Connection added')
 }
 
 const handleFormCancelled = () => {
@@ -114,162 +170,204 @@ const handleImportResult = (result: ConnectionImportResult) => {
 </script>
 
 <template>
-  <div>
-    <div class="flex justify-between items-center mb-6">
-      <h1 class="text-3xl font-bold">Connections</h1>
-      
-      <div class="flex space-x-2" v-if="!isAddingConnection && !isEditingConnection && !isImportingConnections">
-        <!-- Export Menu -->
-        <div class="relative">
-          <UiButton 
-            variant="outline" 
-            @click="showExportMenu = !showExportMenu"
-            :disabled="connectionsStore.connections.length === 0"
-          >
-            Export
-          </UiButton>
-          
-          <div 
-            v-if="showExportMenu" 
-            class="absolute right-0 mt-2 w-56 rounded-md shadow-lg bg-background border z-10"
-          >
-            <div class="py-1">
-              <button 
-                class="w-full text-left px-4 py-2 text-sm hover:bg-muted"
-                @click="handleExportAllConnections"
-              >
-                Export All Connections
-              </button>
-              
-              <div v-if="connectionsStore.connections.length > 0" class="border-t my-1"></div>
-              
-              <button 
-                v-for="connection in connectionsStore.connections" 
-                :key="connection.id"
-                class="w-full text-left px-4 py-2 text-sm hover:bg-muted truncate"
-                @click="handleExportConnection(connection.id)"
-              >
-                Export "{{ connection.name }}"
-              </button>
-            </div>
-          </div>
-        </div>
-        
-        <UiButton variant="outline" @click="importConnections">
+  <div class="space-y-5">
+    <header class="flex flex-wrap items-end justify-between gap-3">
+      <div>
+        <h1 class="text-xl font-semibold tracking-tight">Connections</h1>
+        <p class="mt-0.5 text-xs text-muted-foreground">
+          Every Dgraph endpoint this browser knows about, and which production database
+          each one promotes to.
+        </p>
+      </div>
+
+      <div v-if="!isShowingForm" class="flex items-center gap-2">
+        <UiButton
+          variant="outline"
+          size="sm"
+          :disabled="connectionsStore.connections.length === 0"
+          @click="openExportMenu"
+        >
+          <Download class="h-3.5 w-3.5" />
+          Export
+        </UiButton>
+
+        <UiButton variant="outline" size="sm" @click="importConnections">
+          <Upload class="h-3.5 w-3.5" />
           Import
         </UiButton>
-        
-        <UiButton @click="addConnection">
-          Add Connection
+
+        <UiButton size="sm" @click="addConnection">
+          <Plus class="h-3.5 w-3.5" />
+          Add connection
         </UiButton>
       </div>
-    </div>
-    
-    <div v-if="isAddingConnection">
-      <UiCard>
-        <UiCardHeader>
-          <UiCardTitle>Add New Connection</UiCardTitle>
-        </UiCardHeader>
-        <UiCardContent>
-          <ConnectionForm 
-            @saved="handleConnectionSaved" 
-            @cancelled="handleFormCancelled" 
+    </header>
+
+    <section v-if="isAddingConnection" class="rounded-lg border border-border bg-card">
+      <div class="border-b border-border px-4 py-3">
+        <h2 class="text-[13px] font-semibold tracking-tight">New connection</h2>
+        <p class="mt-0.5 text-xs text-muted-foreground">
+          Credentials are stored in this browser only, separately from the connection.
+        </p>
+      </div>
+      <div class="px-4 py-4">
+        <ConnectionForm @saved="handleConnectionSaved" @cancelled="handleFormCancelled" />
+      </div>
+    </section>
+
+    <section
+      v-else-if="isEditingConnection && editingConnection"
+      class="rounded-lg border border-border bg-card"
+    >
+      <div class="border-b border-border px-4 py-3">
+        <h2 class="text-[13px] font-semibold tracking-tight">
+          Edit {{ editingConnection.name }}
+        </h2>
+      </div>
+      <div class="px-4 py-4">
+        <ConnectionForm
+          :connection="editingConnection"
+          @saved="handleConnectionSaved"
+          @cancelled="handleFormCancelled"
+        />
+      </div>
+    </section>
+
+    <section v-else-if="isImportingConnections" class="rounded-lg border border-border bg-card">
+      <div class="border-b border-border px-4 py-3">
+        <h2 class="text-[13px] font-semibold tracking-tight">Import connections</h2>
+      </div>
+      <div class="px-4 py-4">
+        <ConnectionImport @imported="handleImportResult" @cancelled="handleFormCancelled" />
+      </div>
+    </section>
+
+    <section v-else-if="importResult" class="rounded-lg border border-border bg-card">
+      <div class="border-b border-border px-4 py-3">
+        <h2 class="text-[13px] font-semibold tracking-tight">Import result</h2>
+      </div>
+
+      <div class="space-y-4 px-4 py-4">
+        <div
+          class="rounded-md border px-3 py-2.5 text-[13px]"
+          :class="
+            importResult.success
+              ? 'border-success-border bg-success-subtle text-success'
+              : 'border-danger-border bg-danger-subtle text-danger'
+          "
+        >
+          {{ importResult.message }}
+        </div>
+
+        <div v-if="importResult.errors.length > 0" class="space-y-1.5">
+          <h3 class="text-[13px] font-medium">What could not be imported</h3>
+          <ul class="list-disc space-y-1 pl-5 text-xs text-muted-foreground">
+            <li v-for="(error, index) in importResult.errors" :key="index">
+              {{ error }}
+            </li>
+          </ul>
+        </div>
+      </div>
+
+      <div class="border-t border-border px-4 py-3">
+        <UiButton size="sm" @click="importResult = null">Back to connections</UiButton>
+      </div>
+    </section>
+
+    <ConnectionList v-else @edit="editConnection" @delete="confirmDelete" />
+
+    <!-- Export dialog -->
+    <UiDialog :open="showExportMenu" @update:open="handleExportOpenChange">
+      <UiDialogContent>
+        <UiDialogHeader>
+          <UiDialogTitle>Export connections</UiDialogTitle>
+          <UiDialogDescription>
+            Connections are written to an unencrypted JSON file in your downloads folder.
+          </UiDialogDescription>
+        </UiDialogHeader>
+
+        <label class="flex cursor-pointer items-start gap-2 text-[13px]">
+          <input
+            v-model="exportIncludeCredentials"
+            type="checkbox"
+            class="mt-0.5 h-3.5 w-3.5 rounded border-input accent-primary"
           />
-        </UiCardContent>
-      </UiCard>
-    </div>
-    
-    <div v-else-if="isEditingConnection && editingConnection">
-      <UiCard>
-        <UiCardHeader>
-          <UiCardTitle>Edit Connection</UiCardTitle>
-        </UiCardHeader>
-        <UiCardContent>
-          <ConnectionForm 
-            :connection="editingConnection" 
-            @saved="handleConnectionSaved" 
-            @cancelled="handleFormCancelled" 
-          />
-        </UiCardContent>
-      </UiCard>
-    </div>
-    
-    <div v-else-if="isImportingConnections">
-      <UiCard>
-        <UiCardHeader>
-          <UiCardTitle>Import Connections</UiCardTitle>
-        </UiCardHeader>
-        <UiCardContent>
-          <ConnectionImport 
-            @imported="handleImportResult" 
-            @cancelled="handleFormCancelled" 
-          />
-        </UiCardContent>
-      </UiCard>
-    </div>
-    
-    <div v-else-if="importResult">
-      <UiCard>
-        <UiCardHeader>
-          <UiCardTitle>Import Result</UiCardTitle>
-        </UiCardHeader>
-        <UiCardContent>
-          <div 
-            class="p-4 rounded-md mb-4" 
-            :class="importResult.success ? 'bg-green-50 text-green-700' : 'bg-red-50 text-red-700'"
+          <span>
+            <span class="font-medium">Include credentials</span>
+            <span class="block text-xs text-muted-foreground">
+              Passwords, tokens and API keys. Off by default.
+            </span>
+          </span>
+        </label>
+
+        <div
+          v-if="exportIncludeCredentials"
+          class="rounded-md border border-danger-border bg-danger-subtle p-3 text-xs leading-5 text-danger"
+        >
+          The downloaded file will contain these secrets in plaintext. Anyone who can
+          read the file can use them. Delete it once you have imported it.
+        </div>
+
+        <div class="-mx-1 max-h-64 overflow-y-auto">
+          <button
+            type="button"
+            class="flex w-full items-center justify-between rounded-md px-3 py-2 text-left text-[13px] transition-colors hover:bg-accent"
+            @click="handleExportAllConnections"
           >
-            <p class="font-medium">{{ importResult.message }}</p>
-          </div>
-          
-          <div v-if="importResult.errors.length > 0" class="space-y-2">
-            <h3 class="text-sm font-medium">Errors:</h3>
-            <ul class="list-disc pl-5 text-sm space-y-1">
-              <li v-for="(error, index) in importResult.errors" :key="index">
-                {{ error }}
-              </li>
-            </ul>
-          </div>
-        </UiCardContent>
-        <UiCardFooter>
-          <UiButton @click="importResult = null">
-            Back to Connections
-          </UiButton>
-        </UiCardFooter>
-      </UiCard>
-    </div>
-    
-    <div v-else>
-      <ConnectionList 
-        @edit="editConnection" 
-        @delete="confirmDelete" 
-      />
-    </div>
-    
-    <!-- Delete Confirmation Dialog -->
-    <div v-if="showDeleteConfirm" class="fixed inset-0 bg-black/50 flex items-center justify-center z-50">
-      <UiCard class="w-full max-w-md mx-4">
-        <UiCardHeader>
-          <UiCardTitle>Confirm Deletion</UiCardTitle>
-        </UiCardHeader>
-        <UiCardContent>
-          <p>Are you sure you want to delete this connection? This action cannot be undone.</p>
-        </UiCardContent>
-        <UiCardFooter class="flex justify-end space-x-2">
-          <UiButton variant="outline" @click="showDeleteConfirm = false">
+            <span class="font-medium">All connections</span>
+            <span class="font-mono text-[11px] text-muted-foreground">
+              {{ connectionsStore.connections.length }}
+            </span>
+          </button>
+
+          <div class="my-1 border-t border-border" />
+
+          <button
+            v-for="connection in connectionsStore.connections"
+            :key="connection.id"
+            type="button"
+            class="flex w-full items-center justify-between gap-2 rounded-md px-3 py-2 text-left text-[13px] transition-colors hover:bg-accent"
+            @click="handleExportConnection(connection.id)"
+          >
+            <span class="truncate font-mono">{{ connection.name }}</span>
+            <StatusBadge
+              v-if="connection.environment === 'Production'"
+              tone="warning"
+              variant="outline"
+            >
+              Production
+            </StatusBadge>
+          </button>
+        </div>
+
+        <UiDialogFooter>
+          <UiButton variant="outline" size="sm" @click="closeExportMenu">Cancel</UiButton>
+        </UiDialogFooter>
+      </UiDialogContent>
+    </UiDialog>
+
+    <!-- Delete confirmation -->
+    <UiDialog v-model:open="showDeleteConfirm">
+      <UiDialogContent class="max-w-md">
+        <UiDialogHeader>
+          <UiDialogTitle>
+            Delete {{ deletingConnection?.name || 'this connection' }}?
+          </UiDialogTitle>
+          <UiDialogDescription>
+            The connection and any credentials stored for it are removed from this
+            browser. Saved schema versions for it are removed too. This cannot be undone.
+          </UiDialogDescription>
+        </UiDialogHeader>
+
+        <UiDialogFooter>
+          <UiButton variant="outline" size="sm" @click="showDeleteConfirm = false">
             Cancel
           </UiButton>
-          <UiButton variant="destructive" @click="deleteConnection">
-            Delete
+          <UiButton variant="destructive" size="sm" @click="deleteConnection">
+            Delete connection
           </UiButton>
-        </UiCardFooter>
-      </UiCard>
-    </div>
-    
-    <!-- Click outside handler for export menu -->
-    <div 
-      v-if="showExportMenu" 
-      class="fixed inset-0 z-0"
-      @click="showExportMenu = false"
-    ></div>
+        </UiDialogFooter>
+      </UiDialogContent>
+    </UiDialog>
   </div>
 </template>

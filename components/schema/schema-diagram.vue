@@ -1,6 +1,6 @@
 <script setup lang="ts">
 import { ref, onMounted, watch, nextTick } from 'vue'
-import { buildSchema, GraphQLSchema } from 'graphql'
+import { buildSchema } from 'graphql'
 import { useDgraphClient } from '@/composables/useDgraphClient'
 import { useConnectionsStore } from '@/stores/connections'
 import * as d3 from 'd3'
@@ -273,8 +273,8 @@ const renderGraph = (data: GraphData) => {
       .selectAll('line')
       .data(data.links)
       .join('line')
-      .attr('stroke', '#ccc')
-      .attr('stroke-opacity', 0.4)
+      .style('stroke', 'var(--border-strong)')
+      .attr('stroke-opacity', 0.5)
       .attr('stroke-width', 1)
     
     // We'll create link labels as part of the link label groups below
@@ -289,14 +289,14 @@ const renderGraph = (data: GraphData) => {
     
     // Add background rectangles to each group
     linkLabelGroups.append('rect')
-      .attr('fill', 'white')
-      .attr('fill-opacity', 0.8)
+      .style('fill', 'var(--card)')
+      .attr('fill-opacity', 0.9)
       .attr('rx', 2)
     
     // Add text to each group
-    const linkLabelTexts = linkLabelGroups.append('text')
+    linkLabelGroups.append('text')
       .attr('font-size', 9)
-      .attr('fill', '#666')
+      .style('fill', 'var(--muted-foreground)')
       .attr('text-anchor', 'middle')
       .attr('dy', -5)
       .text(d => d.relationship)
@@ -344,17 +344,17 @@ const renderGraph = (data: GraphData) => {
       .attr('height', d => getNodeHeight(d))
       .attr('rx', 6)
       .attr('ry', 6)
-      .attr('fill', d => getNodeColor(d.kind))
-      .attr('stroke', d => getNodeStrokeColor(d.kind))
+      .style('fill', 'var(--card)')
+      .style('stroke', d => getNodeStrokeColor(d.kind))
       .attr('stroke-width', 1.5)
-      .attr('filter', 'drop-shadow(1px 1px 2px rgba(0,0,0,0.2))')
     
     // Add node titles with improved styling
     node.append('text')
       .attr('x', 10)
       .attr('y', 20)
-      .attr('font-weight', 'bold')
+      .attr('font-weight', 600)
       .attr('font-size', 12)
+      .style('fill', 'var(--card-foreground)')
       .text(d => d.name)
     
     // Add directives if any
@@ -366,7 +366,7 @@ const renderGraph = (data: GraphData) => {
           .attr('x', 10)
           .attr('y', 35)
           .attr('font-size', 9)
-          .attr('fill', '#666')
+          .style('fill', 'var(--muted-foreground)')
           .text(d.directives.join(' '))
       }
     })
@@ -383,6 +383,7 @@ const renderGraph = (data: GraphData) => {
           .attr('x', 15)
           .attr('y', 40 + directiveOffset + i * 20)
           .attr('font-size', 11)
+          .style('fill', 'var(--card-foreground)')
           .text(field)
       })
       
@@ -391,7 +392,7 @@ const renderGraph = (data: GraphData) => {
           .attr('x', 15)
           .attr('y', 40 + directiveOffset + 5 * 20)
           .attr('font-size', 11)
-          .attr('fill', '#666')
+          .style('fill', 'var(--muted-foreground)')
           .text(`... ${fields.length - 5} more`)
       }
     })
@@ -399,12 +400,12 @@ const renderGraph = (data: GraphData) => {
     // Add a search box for filtering nodes
     const searchContainer = d3.select(containerRef.value)
       .append('div')
-      .attr('class', 'absolute top-4 right-4 bg-white p-2 rounded shadow-md')
+      .attr('class', 'absolute top-3 right-3 flex items-center gap-1.5 rounded-md border border-border bg-card p-1.5 shadow-lg')
     
     searchContainer.append('input')
       .attr('type', 'text')
       .attr('placeholder', 'Search types...')
-      .attr('class', 'border rounded px-2 py-1 text-sm w-48')
+      .attr('class', 'h-7 w-44 rounded-md border border-input bg-card px-2 text-xs outline-none')
       .on('input', function() {
         const searchTerm = this.value.toLowerCase()
         
@@ -433,7 +434,7 @@ const renderGraph = (data: GraphData) => {
     
     // Add a reset button
     searchContainer.append('button')
-      .attr('class', 'ml-2 bg-gray-200 px-2 py-1 rounded text-sm')
+      .attr('class', 'h-7 rounded-md border border-input bg-card px-2 text-xs font-medium hover:bg-accent')
       .text('Reset')
       .on('click', () => {
         // Reset search input
@@ -450,7 +451,7 @@ const renderGraph = (data: GraphData) => {
     
     // Add a layout button
     searchContainer.append('button')
-      .attr('class', 'ml-2 bg-blue-100 px-2 py-1 rounded text-sm')
+      .attr('class', 'h-7 rounded-md border border-input bg-card px-2 text-xs font-medium hover:bg-accent')
       .text('Improve Layout')
       .on('click', () => {
         // Adjust forces for better layout
@@ -527,43 +528,24 @@ const renderGraph = (data: GraphData) => {
   }
 }
 
-// Get color based on node kind with improved color scheme
-const getNodeColor = (kind: string) => {
-  switch (kind) {
-    case 'ObjectType':
-      return '#e6f7ff'
-    case 'InterfaceType':
-      return '#fff7e6'
-    case 'EnumType':
-      return '#f6ffed'
-    case 'InputObjectType':
-      return '#fff1f0'
-    case 'ScalarType':
-      return '#f9f0ff'
-    case 'UnionType':
-      return '#f0f5ff'
-    default:
-      return '#f0f2f5'
-  }
-}
-
-// Get stroke color based on node kind
+// Stroke colour per type kind. The node body always uses the card surface so the
+// diagram reads the same in both themes; only the rule around it carries the kind.
 const getNodeStrokeColor = (kind: string) => {
   switch (kind) {
     case 'ObjectType':
-      return '#1890ff'
+      return 'oklch(0.62 0.13 250)'
     case 'InterfaceType':
-      return '#fa8c16'
+      return 'oklch(0.66 0.13 60)'
     case 'EnumType':
-      return '#52c41a'
+      return 'oklch(0.62 0.13 150)'
     case 'InputObjectType':
-      return '#f5222d'
+      return 'oklch(0.62 0.16 20)'
     case 'ScalarType':
-      return '#722ed1'
+      return 'oklch(0.60 0.14 305)'
     case 'UnionType':
-      return '#2f54eb'
+      return 'oklch(0.60 0.12 200)'
     default:
-      return '#d9d9d9'
+      return 'var(--border-strong)'
   }
 }
 
@@ -608,8 +590,8 @@ onMounted(() => {
 
 <template>
   <div class="flex flex-col h-full">
-    <div class="flex justify-between items-center mb-2">
-      <h3 class="text-lg font-medium">GraphQL Schema Diagram</h3>
+    <div class="mb-2 flex flex-wrap items-center justify-between gap-2">
+      <h3 class="text-[13px] font-semibold tracking-tight">Schema diagram</h3>
       
       <div class="flex space-x-2">
         <UiButton 
@@ -623,16 +605,19 @@ onMounted(() => {
       </div>
     </div>
     
-    <div v-if="error" class="bg-red-50 text-red-700 p-2 rounded mb-2">
+    <div
+      v-if="error"
+      class="mb-2 rounded-md border border-danger-border bg-danger-subtle px-3 py-2 text-xs leading-5 text-danger"
+    >
       {{ error }}
     </div>
     
-    <div v-if="isLoading" class="flex items-center justify-center p-4">
-      <div class="animate-spin h-6 w-6 border-2 border-primary border-t-transparent rounded-full"></div>
-      <span class="ml-2">Loading schema data...</span>
+    <div v-if="isLoading" class="flex items-center justify-center gap-2 p-4 text-xs text-muted-foreground">
+      <div class="h-4 w-4 animate-spin rounded-full border-2 border-border-strong border-t-foreground"></div>
+      Loading schema…
     </div>
     
-    <div v-else class="flex-1 border rounded-md overflow-hidden relative">
+    <div v-else class="relative flex-1 overflow-hidden rounded-md border border-border">
       <div ref="containerRef" class="w-full h-full" style="min-height: 600px;"></div>
     </div>
   </div>
@@ -641,14 +626,15 @@ onMounted(() => {
 <style>
 .node-tooltip {
   position: absolute;
-  background-color: white;
-  border: 1px solid #ccc;
-  border-radius: 4px;
+  background-color: var(--popover);
+  color: var(--popover-foreground);
+  border: 1px solid var(--border);
+  border-radius: 6px;
   padding: 8px;
   font-size: 12px;
   pointer-events: none;
   z-index: 10;
   max-width: 300px;
-  box-shadow: 0 2px 4px rgba(0, 0, 0, 0.1);
+  box-shadow: 0 8px 24px -12px rgb(0 0 0 / 0.35);
 }
 </style>

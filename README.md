@@ -5,7 +5,7 @@ A web-based admin interface for managing Dgraph instances.
 ## Features
 
 - Manage multiple Dgraph connections
-- Securely store credentials in your browser
+- Store connection credentials in your browser
 - Edit GraphQL schema with syntax highlighting
 - Visualize GraphQL schema as interactive UML diagram
 - Compare schema versions with diff view
@@ -73,7 +73,31 @@ pnpm preview
 
 ## Security
 
-All credentials are encrypted before being stored in your browser. No data is sent to any external servers.
+Dgraph Admin runs entirely in your browser. Connections and credentials are kept in
+`localStorage`/`sessionStorage` and are never sent to an external server &mdash; the only
+hosts contacted are the Dgraph endpoints you configure.
+
+Credentials are **obfuscated at rest, not securely encrypted**. By default the AES key is
+generated once and stored in `localStorage` alongside the ciphertext, so anything that can
+read the stored credentials can also read the key: a cross-site scripting bug in the app, a
+malicious browser extension, or anyone with access to the browser profile on disk. Treat
+this as protection against a casual glance at storage, not as a secret store.
+
+What this means in practice:
+
+- Prefer **session-only storage** (Settings &rarr; Credential Storage, persistence off) for
+  production credentials. They then live in `sessionStorage` for the tab only.
+- Optionally set an **encryption passphrase** (Settings &rarr; Credential Storage). The key
+  is then derived from that passphrase with PBKDF2 and held in memory for the session only,
+  so nothing written to disk is enough to recover the credentials. You are asked for the
+  passphrase once per browser session, and there is no recovery if you forget it.
+- Prefer scoped, short-lived tokens over long-lived admin credentials wherever your Dgraph
+  deployment allows it.
+
+**Exporting connections writes a plaintext JSON file.** Credentials are excluded unless you
+tick "Include credentials" at export time; if you do include them, the passwords, tokens and
+API keys are readable by anyone who can open the file. Delete the file once you have
+imported it.
 
 ## License
 

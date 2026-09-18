@@ -1,18 +1,17 @@
 <script setup lang="ts"></script>
 
 <template>
-  <div class="min-h-screen bg-background flex">
-    <!-- Sidebar -->
+  <div class="flex min-h-screen flex-col bg-background md:flex-row">
     <AppSidebar />
 
-    <!-- Main Content -->
-    <div class="flex-1 flex flex-col md:ml-0">
-      <!-- Main Content Area -->
-      <main class="flex-1 p-4 md:p-6 gradient-bg">
-        <div class="max-w-7xl mx-auto">
+    <div class="flex min-w-0 flex-1 flex-col">
+      <main class="flex-1 px-4 py-6 md:px-8 md:py-8">
+        <div class="mx-auto w-full max-w-[1280px]">
           <slot />
         </div>
       </main>
     </div>
+
+    <UiToast />
   </div>
 </template>

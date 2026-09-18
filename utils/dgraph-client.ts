@@ -18,6 +18,51 @@ export type DgraphResponse<T> = {
   error?: DgraphError
 }
 
+// Endpoints exposed by a Dgraph instance
+export type DgraphEndpoint = 'admin' | 'graphql'
+
+// Every request issued by the client is aborted after this many milliseconds
+export const REQUEST_TIMEOUT_MS = 15000
+
+// Shape of the GraphQL envelope returned by both endpoints
+type GraphQLErrorEntry = {
+  message?: string
+  extensions?: {
+    code?: string
+  }
+}
+
+type GraphQLResponseBody<T> = {
+  data?: T
+  errors?: GraphQLErrorEntry[]
+}
+
+const UNAUTHORIZED_MESSAGE_PATTERN = /unauthori[sz]ed|unauthenticated|not authori[sz]ed|permission denied|forbidden|invalid (?:api ?key|token|credentials)|authentication (?:failed|required)/i
+
+// Derive an error code from a GraphQL errors payload, so callers can detect auth failures
+const getGraphQLErrorCode = (errors: GraphQLErrorEntry[]): string | undefined => {
+  for (const entry of errors) {
+    if (entry.extensions?.code === 'ErrorUnauthorized') {
+      return 'ErrorUnauthorized'
+    }
+
+    if (entry.message && UNAUTHORIZED_MESSAGE_PATTERN.test(entry.message)) {
+      return 'AUTH_ERROR'
+    }
+  }
+
+  return undefined
+}
+
+// Human readable description of a thrown request error, including aborts
+const describeError = (error: unknown): string => {
+  if (error instanceof Error && error.name === 'AbortError') {
+    return `Request timed out after ${REQUEST_TIMEOUT_MS}ms`
+  }
+
+  return error instanceof Error ? error.message : String(error)
+}
+
 export class DgraphClient {
   private connection: Connection
   private graphqlHeaders: Record<string, string> = {}
@@ -89,17 +134,86 @@ export class DgraphClient {
     }
   }
 
-  // Get headers based on endpoint
-  private getHeaders(endpoint: string): Record<string, string> {
-    if (endpoint.includes('admin')) {
-      return this.adminHeaders
-    }
-    return this.graphqlHeaders
+  // Get headers for a given endpoint
+  private getHeaders(endpoint: DgraphEndpoint): Record<string, string> {
+    return endpoint === 'admin' ? this.adminHeaders : this.graphqlHeaders
   }
 
-  // Get the base URL for API requests (using proxy or direct)
-  private getBaseUrl(endpoint: string): string {
-    return `${this.connection.url}/${endpoint}`
+  // Get the base URL for API requests, tolerating trailing slashes on the stored URL
+  private getBaseUrl(endpoint: DgraphEndpoint): string {
+    return `${this.connection.url.replace(/\/+$/, '')}/${endpoint}`
+  }
+
+  // POST a JSON body to an endpoint, aborting the request after REQUEST_TIMEOUT_MS
+  private async postJson(endpoint: DgraphEndpoint, body: unknown): Promise<Response> {
+    const controller = new AbortController()
+    const timeoutId = setTimeout(() => controller.abort(), REQUEST_TIMEOUT_MS)
+
+    try {
+      return await fetch(this.getBaseUrl(endpoint), {
+        method: 'POST',
+        headers: this.getHeaders(endpoint),
+        body: JSON.stringify(body),
+        signal: controller.signal
+      })
+    } finally {
+      clearTimeout(timeoutId)
+    }
+  }
+
+  // Build a structured error from a non-OK HTTP response
+  private async buildHttpError(response: Response, message: string): Promise<DgraphError> {
+    let body = ''
+
+    try {
+      body = await response.text()
+    } catch {
+      body = ''
+    }
+
+    return {
+      message,
+      code: response.status === 401 || response.status === 403 ? 'AUTH_ERROR' : 'HTTP_ERROR',
+      details: `HTTP ${response.status} ${response.statusText}${body ? `: ${body.slice(0, 500)}` : ''}`
+    }
+  }
+
+  // Execute a GraphQL document against one of the endpoints
+  private async executeGraphQL<T>(
+    endpoint: DgraphEndpoint,
+    message: string,
+    query: string,
+    variables?: Record<string, unknown>
+  ): Promise<DgraphResponse<T>> {
+    try {
+      const response = await this.postJson(endpoint, { query, variables })
+
+      if (!response.ok) {
+        return { error: await this.buildHttpError(response, message) }
+      }
+
+      const body = await response.json() as GraphQLResponseBody<T>
+
+      if (body.errors && body.errors.length > 0) {
+        return {
+          error: {
+            message,
+            code: getGraphQLErrorCode(body.errors),
+            details: JSON.stringify(body.errors)
+          }
+        }
+      }
+
+      return { data: body.data as T }
+    } catch (error) {
+      return {
+        error: {
+          message,
+          code: error instanceof Error && error.name === 'AbortError' ? 'TIMEOUT' : undefined,
+          details: describeError(error)
+        }
+      }
+    }
   }
   
   // Test connection with detailed results
@@ -185,38 +299,8 @@ export class DgraphClient {
   }
 
   // Execute GraphQL query against the admin endpoint
-  async executeAdminQuery<T>(query: string, variables?: Record<string, any>): Promise<DgraphResponse<T>> {
-    try {
-      const url = this.getBaseUrl('admin');
-      const response = await fetch(url, {
-        method: 'POST',
-        headers: this.getHeaders('admin'),
-        body: JSON.stringify({
-          query,
-          variables
-        })
-      });
-
-      const data = await response.json();
-
-      if (data.errors) {
-        return {
-          error: {
-            message: 'Admin GraphQL query execution failed',
-            details: JSON.stringify(data.errors)
-          }
-        };
-      }
-
-      return { data: data.data as T };
-    } catch (error) {
-      return {
-        error: {
-          message: 'Admin GraphQL query execution failed',
-          details: error instanceof Error ? error.message : String(error)
-        }
-      };
-    }
+  async executeAdminQuery<T>(query: string, variables?: Record<string, unknown>): Promise<DgraphResponse<T>> {
+    return this.executeGraphQL<T>('admin', 'Admin GraphQL query execution failed', query, variables)
   }
 
   // Get GraphQL schema
@@ -237,6 +321,7 @@ export class DgraphClient {
         return {
           error: {
             message: 'Failed to fetch schema',
+            code: result.error.code,
             details: result.error.details || result.error.message
           }
         };
@@ -249,7 +334,7 @@ export class DgraphClient {
       return {
         error: {
           message: 'Failed to fetch schema',
-          details: error instanceof Error ? error.message : String(error)
+          details: describeError(error)
         }
       };
     }
@@ -283,6 +368,7 @@ export class DgraphClient {
         return {
           error: {
             message: 'Failed to update schema',
+            code: result.error.code,
             details: result.error.details || result.error.message
           }
         };
@@ -293,45 +379,15 @@ export class DgraphClient {
       return {
         error: {
           message: 'Failed to update schema',
-          details: error instanceof Error ? error.message : String(error)
+          details: describeError(error)
         }
       };
     }
   }
 
   // Execute GraphQL query
-  async executeQuery<T>(query: string, variables?: Record<string, any>): Promise<DgraphResponse<T>> {
-    try {
-      const url = this.getBaseUrl('graphql');
-      const response = await fetch(url, {
-        method: 'POST',
-        headers: this.getHeaders('graphql'),
-        body: JSON.stringify({
-          query,
-          variables
-        })
-      });
-
-      const data = await response.json();
-
-      if (data.errors) {
-        return {
-          error: {
-            message: 'GraphQL query execution failed',
-            details: JSON.stringify(data.errors)
-          }
-        };
-      }
-
-      return { data: data.data as T };
-    } catch (error) {
-      return {
-        error: {
-          message: 'GraphQL query execution failed',
-          details: error instanceof Error ? error.message : String(error)
-        }
-      };
-    }
+  async executeQuery<T>(query: string, variables?: Record<string, unknown>): Promise<DgraphResponse<T>> {
+    return this.executeGraphQL<T>('graphql', 'GraphQL query execution failed', query, variables)
   }
 
   // Test admin endpoint health
@@ -340,29 +396,53 @@ export class DgraphClient {
     const timestamp = new Date()
     
     try {
-      const url = this.getBaseUrl('admin')
-      const response = await fetch(url, {
-        method: 'POST',
-        headers: this.getHeaders('admin'),
-        body: JSON.stringify({
-          query: '{ __typename }'
-        })
-      })
+      const response = await this.postJson('admin', { query: '{ __typename }' })
       
       const responseTime = Date.now() - startTime
       
-      const success = response.ok
+      if (!response.ok) {
         return {
-          success,
+          success: false,
           responseTime,
-          error: success ? null : `Admin health check failed: ${response.status} ${response.statusText}`,
+          error: `Admin health check failed: ${response.status} ${response.statusText}`,
           timestamp
         }
+      }
+      
+      // Dgraph answers many auth failures with HTTP 200 and a GraphQL errors array
+      let body: GraphQLResponseBody<unknown> | null = null
+      
+      try {
+        body = await response.json() as GraphQLResponseBody<unknown>
+      } catch {
+        body = null
+      }
+      
+      if (body?.errors && body.errors.length > 0) {
+        const details = body.errors
+          .map(entry => entry.message)
+          .filter(message => Boolean(message))
+          .join('; ') || JSON.stringify(body.errors)
+        
+        return {
+          success: false,
+          responseTime,
+          error: `Admin health check failed: ${details}`,
+          timestamp
+        }
+      }
+      
+      return {
+        success: true,
+        responseTime,
+        error: null,
+        timestamp
+      }
     } catch (error) {
       return {
         success: false,
         responseTime: Date.now() - startTime,
-        error: `Admin health check failed: ${error instanceof Error ? error.message : String(error)}`,
+        error: `Admin health check failed: ${describeError(error)}`,
         timestamp
       }
     }
@@ -386,7 +466,7 @@ export class DgraphClient {
         }
       }
       
-      const hasSchema = result.data?.schema && result.data.schema.length > 0
+      const hasSchema = Boolean(result.data?.schema && result.data.schema.length > 0)
       return {
         success: hasSchema,
         responseTime,
@@ -397,7 +477,7 @@ export class DgraphClient {
       return {
         success: false,
         responseTime: Date.now() - startTime,
-        error: `Admin schema read failed: ${error instanceof Error ? error.message : String(error)}`,
+        error: `Admin schema read failed: ${describeError(error)}`,
         timestamp
       }
     }
@@ -496,7 +576,7 @@ export class DgraphClient {
         }
       `
       
-      const result = await this.executeQuery(introspectionQuery)
+      const result = await this.executeQuery<{ __schema?: unknown }>(introspectionQuery)
       const responseTime = Date.now() - startTime
       
       if (result.error) {
@@ -508,7 +588,7 @@ export class DgraphClient {
         }
       }
       
-      const hasSchema = result.data && (result.data as any).__schema
+      const hasSchema = Boolean(result.data?.__schema)
       return {
         success: hasSchema,
         responseTime,
@@ -519,7 +599,7 @@ export class DgraphClient {
       return {
         success: false,
         responseTime: Date.now() - startTime,
-        error: `Client introspection failed: ${error instanceof Error ? error.message : String(error)}`,
+        error: `Client introspection failed: ${describeError(error)}`,
         timestamp
       }
     }

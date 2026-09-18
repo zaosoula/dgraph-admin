@@ -4,10 +4,8 @@ import { useConnectionsStore } from '@/stores/connections'
 import { useDgraphClient } from '@/composables/useDgraphClient'
 import { useCodeMirror } from '@/composables/useCodeMirror'
 import { Codemirror } from 'vue-codemirror'
-import * as diffLib from 'diff'
-import Prism from 'prismjs'
-import 'prismjs/components/prism-graphql'
-import 'prismjs/themes/prism.css'
+import { editorTheme } from './editor-theme'
+import { useToast } from '@/components/ui/toast'
 
 const props = defineProps<{
   initialSchema?: string
@@ -21,6 +19,7 @@ const emit = defineEmits<{
 
 const connectionsStore = useConnectionsStore()
 const dgraphClient = useDgraphClient()
+const toast = useToast()
 
 const schema = ref(props.initialSchema || '')
 const originalSchema = ref('') // Store the original schema from the server
@@ -29,214 +28,18 @@ const error = ref<string | null>(null)
 const showDiff = ref(false)
 const showConfirmDialog = ref(false)
 
-// Initialize CodeMirror with vue-codemirror and reference linking
-const { extensions, value, updateContent, updateSchema, schemaParser } = useCodeMirror(schema.value, {
+// Initialize CodeMirror with vue-codemirror and reference linking.
+// `schema` is the single source of truth: it backs the v-model below and feeds the parser.
+const { extensions: baseExtensions } = useCodeMirror(schema, {
   readOnly: props.readOnly,
   enableReferenceLinks: true,
   onChange: (newValue) => {
-    schema.value = newValue
     emit('update:schema', newValue)
   }
 })
 
-// Compute the diff between original and current schema
-const processedDiff = computed(() => {
-  if (!originalSchema.value || !schema.value) return []
-  
-  // First, get line-level diff to identify changed lines
-  const lineDiff = diffLib.diffLines(originalSchema.value, schema.value)
-  
-  // Process the line diff to create a structured representation
-  const result: {
-    leftLineNumber: number | null
-    rightLineNumber: number | null
-    leftContent: string | null
-    rightContent: string | null
-    leftClass: string
-    rightClass: string
-    leftHighlights?: Array<{ start: number; end: number; isRemoved: boolean }>
-    rightHighlights?: Array<{ start: number; end: number; isAdded: boolean }>
-  }[] = []
-  
-  let leftLineCount = 0
-  let rightLineCount = 0
-  
-  // Process each chunk from the line diff
-  lineDiff.forEach(part => {
-    const lines = part.value.split('\n')
-    // Remove the last empty line that results from splitting a string that ends with \n
-    if (lines[lines.length - 1] === '') {
-      lines.pop()
-    }
-    
-    if (part.added) {
-      // Added lines - show only on the right
-      lines.forEach(line => {
-        rightLineCount++
-        result.push({
-          leftLineNumber: null,
-          rightLineNumber: rightLineCount,
-          leftContent: null,
-          rightContent: line,
-          leftClass: '',
-          rightClass: 'bg-green-50 text-green-600'
-        })
-      })
-    } else if (part.removed) {
-      // Removed lines - show only on the left
-      lines.forEach(line => {
-        leftLineCount++
-        result.push({
-          leftLineNumber: leftLineCount,
-          rightLineNumber: null,
-          leftContent: line,
-          rightContent: null,
-          leftClass: 'bg-red-50 text-red-600',
-          rightClass: ''
-        })
-      })
-    } else {
-      // Unchanged lines - show on both sides
-      lines.forEach(line => {
-        leftLineCount++
-        rightLineCount++
-        result.push({
-          leftLineNumber: leftLineCount,
-          rightLineNumber: rightLineCount,
-          leftContent: line,
-          rightContent: line,
-          leftClass: '',
-          rightClass: ''
-        })
-      })
-    }
-  })
-  
-  // Now, find pairs of removed/added lines that might be modifications of each other
-  // and apply word-level diffing to them
-  for (let i = 0; i < result.length - 1; i++) {
-    const current = result[i]
-    const next = result[i + 1]
-    
-    // Check if we have a removed line followed by an added line
-    if (current.leftContent !== null && current.rightContent === null &&
-        next.leftContent === null && next.rightContent !== null) {
-      
-      // Apply word-level diffing
-      const wordDiff = diffLib.diffWords(current.leftContent, next.rightContent)
-      
-      // Process word diff for highlighting
-      const leftHighlights: Array<{ start: number; end: number; isRemoved: boolean }> = []
-      const rightHighlights: Array<{ start: number; end: number; isAdded: boolean }> = []
-      
-      let leftPos = 0
-      let rightPos = 0
-      
-      wordDiff.forEach(part => {
-        if (part.removed) {
-          leftHighlights.push({
-            start: leftPos,
-            end: leftPos + part.value.length,
-            isRemoved: true
-          })
-          leftPos += part.value.length
-        } else if (part.added) {
-          rightHighlights.push({
-            start: rightPos,
-            end: rightPos + part.value.length,
-            isAdded: true
-          })
-          rightPos += part.value.length
-        } else {
-          leftPos += part.value.length
-          rightPos += part.value.length
-        }
-      })
-      
-      // Add the highlights to the result
-      current.leftHighlights = leftHighlights
-      next.rightHighlights = rightHighlights
-      
-      // Mark these lines as a pair
-      current.rightLineNumber = next.rightLineNumber
-      next.leftLineNumber = current.leftLineNumber
-    }
-  }
-  
-  return result
-})
-
-// Count of changes
-const changeCount = computed(() => {
-  return {
-    additions: processedDiff.value.filter(line => line.rightContent !== null && line.leftContent === null).length,
-    deletions: processedDiff.value.filter(line => line.leftContent !== null && line.rightContent === null).length,
-    modifications: processedDiff.value.filter(line => 
-      (line.leftHighlights && line.leftHighlights.length > 0) || 
-      (line.rightHighlights && line.rightHighlights.length > 0)
-    ).length / 2 // Divide by 2 because each modification is counted twice (once for left, once for right)
-  }
-})
-
-// Apply syntax highlighting to a line
-const applySyntaxHighlighting = (code: string): string => {
-  return Prism.highlight(code, Prism.languages.graphql, 'graphql')
-}
-
-// Helper function to highlight parts of a line with both syntax highlighting and diff highlighting
-const highlightLine = (line: string, highlights?: Array<{ start: number; end: number; isRemoved?: boolean; isAdded?: boolean }>) => {
-  if (!line) return ''
-  
-  // If no diff highlights, just apply syntax highlighting
-  if (!highlights || highlights.length === 0) {
-    return applySyntaxHighlighting(line)
-  }
-  
-  // Sort highlights by start position
-  const sortedHighlights = [...highlights].sort((a, b) => a.start - b.start)
-  
-  // Build the highlighted line
-  let result = ''
-  let lastEnd = 0
-  
-  for (const highlight of sortedHighlights) {
-    // Add the text before the highlight with syntax highlighting
-    const beforeText = line.substring(lastEnd, highlight.start)
-    if (beforeText) {
-      result += applySyntaxHighlighting(beforeText)
-    }
-    
-    // Add the highlighted text with both syntax and diff highlighting
-    const highlightedText = line.substring(highlight.start, highlight.end)
-    const syntaxHighlighted = applySyntaxHighlighting(highlightedText)
-    const highlightClass = highlight.isRemoved ? 'bg-red-200' : highlight.isAdded ? 'bg-green-200' : ''
-    
-    result += `<span class="${highlightClass}">${syntaxHighlighted}</span>`
-    
-    lastEnd = highlight.end
-  }
-  
-  // Add any remaining text with syntax highlighting
-  const remainingText = line.substring(lastEnd)
-  if (remainingText) {
-    result += applySyntaxHighlighting(remainingText)
-  }
-  
-  return result
-}
-
-// Apply syntax highlighting to all lines
-const syntaxHighlightedDiff = computed(() => {
-  return processedDiff.value.map(line => {
-    return {
-      ...line,
-      leftContentHighlighted: line.leftContent !== null ? 
-        (line.leftHighlights ? highlightLine(line.leftContent, line.leftHighlights) : applySyntaxHighlighting(line.leftContent)) : null,
-      rightContentHighlighted: line.rightContent !== null ? 
-        (line.rightHighlights ? highlightLine(line.rightContent, line.rightHighlights) : applySyntaxHighlighting(line.rightContent)) : null
-    }
-  })
-})
+// The editor wears the app's tokens rather than CodeMirror's light-only default
+const extensions = [...baseExtensions, editorTheme]
 
 // Check if there are changes
 const hasChanges = computed(() => {
@@ -288,7 +91,6 @@ const loadSchema = async () => {
     
     if (result.data) {
       schema.value = result.data.schema
-      value.value = result.data.schema // Update CodeMirror content
       originalSchema.value = result.data.schema // Store the original schema
       emit('update:schema', schema.value)
     }
@@ -311,8 +113,8 @@ const saveSchema = async () => {
     showDiff.value = false
   }
   
-  // If there are changes, show confirmation dialog
-  if (hasChanges.value && !showConfirmDialog.value) {
+  // Writing to the database always requires an explicit confirmation
+  if (!showConfirmDialog.value) {
     showConfirmDialog.value = true
     return
   }
@@ -358,7 +160,12 @@ const saveSchema = async () => {
     
     // Update the original schema after successful save
     originalSchema.value = schema.value
-    
+
+    toast.success(
+      'Schema written',
+      `${connectionsStore.activeConnection?.name ?? 'The connection'} is now running this schema.`
+    )
+
     emit('save', schema.value)
   } catch (err) {
     error.value = err instanceof Error ? err.message : String(err)
@@ -388,7 +195,6 @@ watch(() => connectionsStore.activeConnectionId, (newId) => {
 watch(() => props.initialSchema, (newSchema) => {
   if (newSchema !== undefined && newSchema !== schema.value) {
     schema.value = newSchema
-    value.value = newSchema // Update CodeMirror content
   }
 })
 
@@ -402,8 +208,8 @@ onMounted(() => {
 
 <template>
   <div class="flex flex-col h-full">
-    <div class="flex justify-between items-center mb-2">
-      <h3 class="text-lg font-medium">GraphQL Schema</h3>
+    <div class="mb-2 flex flex-wrap items-center justify-between gap-2">
+      <h3 class="text-[13px] font-semibold tracking-tight">GraphQL schema</h3>
       
       <div class="flex space-x-2">
         <!-- Toggle diff view button -->
@@ -414,7 +220,7 @@ onMounted(() => {
           @click="toggleDiff" 
           :disabled="isLoading || !connectionsStore.activeConnection"
         >
-          {{ showDiff ? 'Edit Mode' : 'Show Diff' }}
+          {{ showDiff ? 'Back to editor' : 'Show changes' }}
         </UiButton>
         
         <UiButton 
@@ -423,7 +229,7 @@ onMounted(() => {
           @click="loadSchema" 
           :disabled="isLoading || !connectionsStore.activeConnection"
         >
-          Reload
+          Reload schema
         </UiButton>
         
         <UiButton 
@@ -431,20 +237,30 @@ onMounted(() => {
           @click="saveSchema" 
           :disabled="isLoading || !connectionsStore.activeConnection || props.readOnly"
         >
-          Save Schema
+          Save schema
         </UiButton>
       </div>
     </div>
     
-    <div v-if="error" class="bg-red-50 text-red-700 p-2 rounded mb-2">
+    <div
+      v-if="error"
+      class="mb-2 rounded-md border border-danger-border bg-danger-subtle px-3 py-2 text-xs leading-5 text-danger"
+    >
       {{ error }}
     </div>
     
     <!-- Confirmation dialog -->
-    <div v-if="showConfirmDialog" class="bg-yellow-50 border border-yellow-200 text-yellow-800 p-4 rounded mb-2">
-      <h4 class="font-medium mb-2">Confirm Schema Update</h4>
-      <p class="mb-2">Are you sure you want to update the schema? This action cannot be undone.</p>
-      <div class="flex justify-end space-x-2">
+    <div
+      v-if="showConfirmDialog"
+      class="mb-2 rounded-md border border-warning-border bg-warning-subtle px-3 py-3"
+    >
+      <h4 class="text-[13px] font-medium text-warning">
+        Write this schema to {{ connectionsStore.activeConnection?.name }}?
+      </h4>
+      <p class="mt-0.5 text-xs leading-5 text-foreground/80">
+        The live schema is replaced with what is in the editor. This cannot be undone.
+      </p>
+      <div class="mt-3 flex justify-end gap-2">
         <UiButton 
           variant="outline" 
           size="sm" 
@@ -465,64 +281,17 @@ onMounted(() => {
       <div class="animate-spin h-6 w-6 border-2 border-primary border-t-transparent rounded-full"></div>
     </div>
     
-    <div v-else-if="showDiff" class="flex-1 border rounded-md overflow-auto">
-      <!-- Diff view -->
-      <div class="flex font-mono text-sm">
-        <!-- Left column (removed) -->
-        <div class="w-1/2 border-r">
-          <div class="flex">
-            <!-- Line numbers -->
-            <div class="w-10 text-right pr-2 text-gray-500 select-none border-r bg-gray-50">
-              <div v-for="line in syntaxHighlightedDiff" :key="`left-${line.leftLineNumber || 'empty'}`" class="px-2">
-                {{ line.leftLineNumber || ' ' }}
-              </div>
-            </div>
-            <!-- Content -->
-            <div class="flex-1 overflow-x-auto">
-              <div 
-                v-for="line in syntaxHighlightedDiff" 
-                :key="`left-content-${line.leftLineNumber || 'empty'}`"
-                :class="line.leftClass"
-                class="px-2 whitespace-pre"
-              >
-                <template v-if="line.leftContent !== null">
-                  <span v-html="line.leftContentHighlighted"></span>
-                </template>
-                <span v-else>&nbsp;</span>
-              </div>
-            </div>
-          </div>
-        </div>
-        
-        <!-- Right column (added) -->
-        <div class="w-1/2">
-          <div class="flex">
-            <!-- Line numbers -->
-            <div class="w-10 text-right pr-2 text-gray-500 select-none border-r bg-gray-50">
-              <div v-for="line in syntaxHighlightedDiff" :key="`right-${line.rightLineNumber || 'empty'}`" class="px-2">
-                {{ line.rightLineNumber || ' ' }}
-              </div>
-            </div>
-            <!-- Content -->
-            <div class="flex-1 overflow-x-auto">
-              <div 
-                v-for="line in syntaxHighlightedDiff" 
-                :key="`right-content-${line.rightLineNumber || 'empty'}`"
-                :class="line.rightClass"
-                class="px-2 whitespace-pre"
-              >
-                <template v-if="line.rightContent !== null">
-                  <span v-html="line.rightContentHighlighted"></span>
-                </template>
-                <span v-else>&nbsp;</span>
-              </div>
-            </div>
-          </div>
-        </div>
-      </div>
+    <div v-else-if="showDiff" class="min-h-0 flex-1">
+      <SchemaDiffViewer
+        class="h-full"
+        :original-schema="originalSchema"
+        :new-schema="schema"
+        left-label="Saved on server"
+        right-label="Editor"
+      />
     </div>
     
-    <div v-else class="flex-1 border rounded-md overflow-hidden">
+    <div v-else class="flex-1 overflow-hidden rounded-md border border-border">
       <!-- Vue CodeMirror editor with GraphQL syntax highlighting -->
       <div class="w-full h-full overflow-auto">
         <Codemirror
@@ -539,41 +308,20 @@ onMounted(() => {
 </template>
 
 <style>
-/* Override Prism styles to ensure they work well with our diff highlighting */
-.token {
-  background: transparent !important;
-}
-
-/* Minimap styling */
-:deep(.cm-minimap) {
-  border-left: 1px solid #e5e7eb;
-  background: #f9fafb;
-}
-
-:deep(.cm-minimap-overlay) {
-  background: rgba(59, 130, 246, 0.1);
-  border: 1px solid rgba(59, 130, 246, 0.3);
-}
-
-:deep(.cm-minimap-gutter) {
-  background: #f3f4f6;
-  border-right: 1px solid #e5e7eb;
-}
-
 /* GraphQL hover tooltip styling */
 ::deep(.graphql-hover-tooltip) {
   z-index: 1000;
-  font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
+  font-family: var(--font-sans);
 }
 
 ::deep(.graphql-hover-tooltip .font-mono) {
-  font-family: 'SF Mono', Monaco, 'Cascadia Code', 'Roboto Mono', Consolas, 'Courier New', monospace;
+  font-family: var(--font-mono);
 }
 
 /* GraphQL navigation styling */
 @keyframes graphql-highlight-fade {
   0% {
-    background-color: #fef3c7;
+    background-color: var(--warning-subtle);
   }
   100% {
     background-color: transparent;
@@ -591,63 +339,15 @@ onMounted(() => {
 /* Type reference hover effects */
 ::deep(.graphql-type-hover) {
   text-decoration: underline;
-  text-decoration-color: #3b82f6;
-  text-decoration-thickness: 2px;
-  text-underline-offset: 2px;
+  text-decoration-color: var(--cm-type);
+  text-decoration-thickness: 1px;
+  text-underline-offset: 3px;
 }
 
 ::deep(.graphql-definition-highlight) {
-  background-color: #fef3c7;
+  background-color: var(--warning-subtle);
   border-radius: 2px;
   animation: graphql-highlight-fade 2s ease-out;
 }
 
-/* Tooltip content styling with Tailwind-like classes */
-::deep(.graphql-hover-tooltip .bg-blue-100) {
-  background-color: #dbeafe;
-}
-
-::deep(.graphql-hover-tooltip .text-blue-800) {
-  color: #1e40af;
-}
-
-::deep(.graphql-hover-tooltip .bg-purple-100) {
-  background-color: #ede9fe;
-}
-
-::deep(.graphql-hover-tooltip .text-purple-800) {
-  color: #5b21b6;
-}
-
-::deep(.graphql-hover-tooltip .bg-green-100) {
-  background-color: #dcfce7;
-}
-
-::deep(.graphql-hover-tooltip .text-green-800) {
-  color: #166534;
-}
-
-::deep(.graphql-hover-tooltip .bg-orange-100) {
-  background-color: #fed7aa;
-}
-
-::deep(.graphql-hover-tooltip .text-orange-800) {
-  color: #9a3412;
-}
-
-::deep(.graphql-hover-tooltip .bg-yellow-100) {
-  background-color: #fef3c7;
-}
-
-::deep(.graphql-hover-tooltip .text-yellow-800) {
-  color: #92400e;
-}
-
-::deep(.graphql-hover-tooltip .bg-gray-100) {
-  background-color: #f3f4f6;
-}
-
-::deep(.graphql-hover-tooltip .text-gray-800) {
-  color: #1f2937;
-}
 </style>
