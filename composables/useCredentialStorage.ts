@@ -1,5 +1,5 @@
 import { ref } from 'vue'
-import { encrypt, decrypt, encryptObject, decryptObject } from '@/utils/encryption'
+import { encryptObject, decryptObject } from '@/utils/encryption'
 import type { ConnectionCredentials } from '@/types/connection'
 
 export const useCredentialStorage = () => {
@@ -95,8 +95,8 @@ export const useCredentialStorage = () => {
       if (persistentData) {
         const allCredentials = decryptObject<Record<string, ConnectionCredentials>>(persistentData)
         if (allCredentials[connectionId]) {
-          delete allCredentials[connectionId]
-          localStorage.setItem(storageKey, encryptObject(allCredentials))
+          const { [connectionId]: _removed, ...remaining } = allCredentials
+          localStorage.setItem(storageKey, encryptObject(remaining))
         }
       }
       
@@ -104,8 +104,8 @@ export const useCredentialStorage = () => {
       if (sessionData) {
         const allCredentials = decryptObject<Record<string, ConnectionCredentials>>(sessionData)
         if (allCredentials[connectionId]) {
-          delete allCredentials[connectionId]
-          sessionStorage.setItem(sessionStorageKey, encryptObject(allCredentials))
+          const { [connectionId]: _removed, ...remaining } = allCredentials
+          sessionStorage.setItem(sessionStorageKey, encryptObject(remaining))
         }
       }
       

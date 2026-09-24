@@ -78,12 +78,12 @@ const cancelImport = () => {
       @click="selectFile"
     >
       <input 
-        type="file" 
-        ref="fileInputRef"
+        ref="fileInputRef" 
+        type="file"
         class="hidden" 
         accept=".json" 
         @change="handleFileChange"
-      />
+      >
       
       <template v-if="!selectedFile">
         <Upload class="h-5 w-5 text-muted-foreground" />

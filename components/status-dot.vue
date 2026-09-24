@@ -10,7 +10,7 @@ const props = withDefaults(
     label?: string
     size?: 'sm' | 'md'
   }>(),
-  { tone: 'neutral', busy: false, size: 'sm' }
+  { tone: 'neutral', busy: false, size: 'sm', label: undefined }
 )
 
 const toneClass = computed(

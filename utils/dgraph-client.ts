@@ -1,4 +1,4 @@
-import type { Connection, ConnectionCredentials, AuthCredentials, ConnectionTestResult, ConnectionTestCheckResult } from '@/types/connection'
+import type { Connection, AuthCredentials, ConnectionTestResult, ConnectionTestCheckResult } from '@/types/connection'
 
 // GraphQL schema type
 export type GraphQLSchema = {
@@ -163,7 +163,7 @@ export class DgraphClient {
 
   // Build a structured error from a non-OK HTTP response
   private async buildHttpError(response: Response, message: string): Promise<DgraphError> {
-    let body = ''
+    let body: string
 
     try {
       body = await response.text()

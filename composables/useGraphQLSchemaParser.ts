@@ -1,6 +1,6 @@
 import { ref, computed, type Ref } from 'vue'
 import { watchDebounced } from '@vueuse/core'
-import { parse, visit, type DocumentNode, type TypeDefinitionNode, type FieldDefinitionNode, type Location } from 'graphql'
+import { parse, visit, type DocumentNode, type Location, type TypeNode } from 'graphql'
 
 export type TypeDefinition = {
   name: string
@@ -59,7 +59,7 @@ export function useGraphQLSchemaParser(schemaText: Ref<string>) {
   }
 
   // Helper function to extract type name from type node
-  const extractTypeName = (typeNode: any): string => {
+  const extractTypeName = (typeNode: TypeNode): string => {
     if (typeNode.kind === 'NamedType') {
       return typeNode.name.value
     }
@@ -73,7 +73,7 @@ export function useGraphQLSchemaParser(schemaText: Ref<string>) {
   }
 
   // Helper function to format type string
-  const formatTypeString = (typeNode: any): string => {
+  const formatTypeString = (typeNode: TypeNode): string => {
     if (typeNode.kind === 'NamedType') {
       return typeNode.name.value
     }

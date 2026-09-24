@@ -158,7 +158,7 @@ const validate = () => {
   } else {
     try {
       new URL(formState.url);
-    } catch (e) {
+    } catch {
       errors.url = "Invalid URL format";
       isValid = false;
     }
@@ -538,10 +538,10 @@ const cancelForm = () => {
       <div class="flex items-center space-x-2">
         <input
           id="isSecure"
-          type="checkbox"
           v-model="formState.isSecure"
+          type="checkbox"
           class="h-3.5 w-3.5 rounded border-input accent-primary"
-        />
+        >
         <label for="isSecure" class="text-[13px] font-medium"
           >Requires Authentication</label
         >
@@ -552,10 +552,10 @@ const cancelForm = () => {
       <div class="flex items-center space-x-2 mb-4">
         <input
           id="useUnifiedAuth"
-          type="checkbox"
           v-model="formState.useUnifiedAuth"
+          type="checkbox"
           class="h-3.5 w-3.5 rounded border-input accent-primary"
-        />
+        >
         <label for="useUnifiedAuth" class="text-[13px] font-medium"
           >Use same authentication for both GraphQL and Admin endpoints</label
         >
@@ -611,8 +611,8 @@ const cancelForm = () => {
             >
             <UiInput
               id="graphql-password"
-              type="password"
               v-model="formState.credentials.graphql.password"
+              type="password"
               placeholder="Password"
             />
           </div>
@@ -739,8 +739,8 @@ const cancelForm = () => {
             >
             <UiInput
               id="admin-password"
-              type="password"
               v-model="formState.credentials.admin.password"
+              type="password"
               placeholder="Password"
             />
           </div>

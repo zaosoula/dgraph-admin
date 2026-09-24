@@ -299,7 +299,8 @@ export const useSchemaSyncStatus = () => {
   // Clear sync status for a connection
   const clearSyncStatus = (connectionId: string) => {
     if (syncStatuses.value[connectionId]) {
-      delete syncStatuses.value[connectionId]
+      const { [connectionId]: _removed, ...remaining } = syncStatuses.value
+      syncStatuses.value = remaining
     }
   }
 

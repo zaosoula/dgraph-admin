@@ -301,7 +301,8 @@ export const useConnectionsStore = defineStore('connections', () => {
     
     // Remove connection state
     if (connectionStates.value[id]) {
-      delete connectionStates.value[id]
+      const { [id]: _removed, ...remaining } = connectionStates.value
+      connectionStates.value = remaining
     }
 
     // Drop dangling dev -> prod links pointing at the removed connection
