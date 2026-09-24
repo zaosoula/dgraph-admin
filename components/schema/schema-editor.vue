@@ -217,8 +217,8 @@ onMounted(() => {
           v-if="hasChanges"
           variant="outline" 
           size="sm" 
-          @click="toggleDiff" 
-          :disabled="isLoading || !connectionsStore.activeConnection"
+          :disabled="isLoading || !connectionsStore.activeConnection" 
+          @click="toggleDiff"
         >
           {{ showDiff ? 'Back to editor' : 'Show changes' }}
         </UiButton>
@@ -226,16 +226,16 @@ onMounted(() => {
         <UiButton 
           variant="outline" 
           size="sm" 
-          @click="loadSchema" 
-          :disabled="isLoading || !connectionsStore.activeConnection"
+          :disabled="isLoading || !connectionsStore.activeConnection" 
+          @click="loadSchema"
         >
           Reload schema
         </UiButton>
         
         <UiButton 
           size="sm" 
-          @click="saveSchema" 
-          :disabled="isLoading || !connectionsStore.activeConnection || props.readOnly"
+          :disabled="isLoading || !connectionsStore.activeConnection || props.readOnly" 
+          @click="saveSchema"
         >
           Save schema
         </UiButton>
@@ -278,7 +278,7 @@ onMounted(() => {
     </div>
     
     <div v-if="isLoading" class="flex items-center justify-center p-4">
-      <div class="animate-spin h-6 w-6 border-2 border-primary border-t-transparent rounded-full"></div>
+      <div class="animate-spin h-6 w-6 border-2 border-primary border-t-transparent rounded-full"/>
     </div>
     
     <div v-else-if="showDiff" class="min-h-0 flex-1">

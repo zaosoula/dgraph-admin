@@ -300,7 +300,7 @@ const handleImportResult = (result: ConnectionImportResult) => {
             v-model="exportIncludeCredentials"
             type="checkbox"
             class="mt-0.5 h-3.5 w-3.5 rounded border-input accent-primary"
-          />
+          >
           <span>
             <span class="font-medium">Include credentials</span>
             <span class="block text-xs text-muted-foreground">

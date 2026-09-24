@@ -17,8 +17,13 @@ const error = ref<string | null>(null)
 const schemaText = ref<string>('')
 const containerRef = ref<HTMLDivElement | null>(null)
 
-// Graph data structure
-type GraphNode = {
+// Graph data structure.
+//
+// The datum types extend d3's simulation shapes: `SimulationNodeDatum` supplies
+// the mutable x/y/fx/fy the layout writes, and `SimulationLinkDatum` types the
+// endpoints, which d3 rewrites from ids to node objects once the simulation
+// starts.
+type GraphNode = d3.SimulationNodeDatum & {
   id: string
   name: string
   kind: string
@@ -27,11 +32,14 @@ type GraphNode = {
   directives?: string[]
 }
 
-type GraphLink = {
-  source: string
-  target: string
+type GraphLink = d3.SimulationLinkDatum<GraphNode> & {
+  source: string | GraphNode
+  target: string | GraphNode
   relationship: string
 }
+
+/** After the simulation starts, d3 has replaced endpoint ids with node objects. */
+const endpoint = (value: GraphLink['source']): GraphNode => value as GraphNode
 
 type GraphData = {
   nodes: GraphNode[]
@@ -245,21 +253,21 @@ const renderGraph = (data: GraphData) => {
       .attr('style', 'max-width: 100%; height: auto;')
     
     // Create zoom behavior
-    const zoom = d3.zoom()
+    const zoom = d3.zoom<SVGSVGElement, unknown>()
       .scaleExtent([0.1, 4])
       .on('zoom', (event) => {
         g.attr('transform', event.transform)
       })
     
-    svg.call(zoom as any)
+    svg.call(zoom)
     
     // Create container for the graph
     const g = svg.append('g')
     
     // Improved force simulation with better parameters
-    const simulation = d3.forceSimulation(data.nodes as any)
-      .force('link', d3.forceLink(data.links as any)
-        .id((d: any) => d.id)
+    const simulation = d3.forceSimulation<GraphNode>(data.nodes)
+      .force('link', d3.forceLink<GraphNode, GraphLink>(data.links)
+        .id(d => d.id)
         .distance(200)) // Increased distance between nodes
       .force('charge', d3.forceManyBody()
         .strength(-800)) // Stronger repulsion
@@ -317,10 +325,10 @@ const renderGraph = (data: GraphData) => {
     
     // Create nodes with improved styling
     const node = g.append('g')
-      .selectAll('g')
+      .selectAll<SVGGElement, GraphNode>('g')
       .data(data.nodes)
       .join('g')
-      .call(drag(simulation) as any)
+      .call(drag(simulation))
       .on('click', (event, d) => {
         // Show details when clicking on a node
         showNodeDetails(d)
@@ -418,16 +426,16 @@ const renderGraph = (data: GraphData) => {
         // Filter links based on connected nodes
         link.style('opacity', d => {
           if (!searchTerm) return 0.4
-          const sourceMatches = (d.source as any).name.toLowerCase().includes(searchTerm)
-          const targetMatches = (d.target as any).name.toLowerCase().includes(searchTerm)
+          const sourceMatches = endpoint(d.source).name.toLowerCase().includes(searchTerm)
+          const targetMatches = endpoint(d.target).name.toLowerCase().includes(searchTerm)
           return sourceMatches || targetMatches ? 0.8 : 0.1
         })
         
         // Filter link label groups
         linkLabelGroups.style('opacity', d => {
           if (!searchTerm) return 1
-          const sourceMatches = (d.source as any).name.toLowerCase().includes(searchTerm)
-          const targetMatches = (d.target as any).name.toLowerCase().includes(searchTerm)
+          const sourceMatches = endpoint(d.source).name.toLowerCase().includes(searchTerm)
+          const targetMatches = endpoint(d.target).name.toLowerCase().includes(searchTerm)
           return sourceMatches || targetMatches ? 1 : 0.1
         })
       })
@@ -457,8 +465,8 @@ const renderGraph = (data: GraphData) => {
         // Adjust forces for better layout
         simulation
           .force('charge', d3.forceManyBody().strength(-1000))
-          .force('link', d3.forceLink(data.links as any)
-            .id((d: any) => d.id)
+          .force('link', d3.forceLink<GraphNode, GraphLink>(data.links)
+            .id(d => d.id)
             .distance(250))
           .force('collision', d3.forceCollide().radius(120))
           .alpha(0.5)
@@ -468,36 +476,38 @@ const renderGraph = (data: GraphData) => {
     // Update positions on simulation tick
     simulation.on('tick', () => {
       link
-        .attr('x1', (d: any) => d.source.x)
-        .attr('y1', (d: any) => d.source.y)
-        .attr('x2', (d: any) => d.target.x)
-        .attr('y2', (d: any) => d.target.y)
+        .attr('x1', d => endpoint(d.source).x ?? 0)
+        .attr('y1', d => endpoint(d.source).y ?? 0)
+        .attr('x2', d => endpoint(d.target).x ?? 0)
+        .attr('y2', d => endpoint(d.target).y ?? 0)
       
       // Update the position of the link label groups
       linkLabelGroups
-        .attr('transform', (d: any) => {
-          const midX = (d.source.x + d.target.x) / 2
-          const midY = (d.source.y + d.target.y) / 2
+        .attr('transform', d => {
+          const midX = ((endpoint(d.source).x ?? 0) + (endpoint(d.target).x ?? 0)) / 2
+          const midY = ((endpoint(d.source).y ?? 0) + (endpoint(d.target).y ?? 0)) / 2
           return `translate(${midX}, ${midY})`
         })
       
-      node.attr('transform', (d: any) => `translate(${d.x - 60}, ${d.y - 25})`)
+      node.attr('transform', d => `translate(${(d.x ?? 0) - 60}, ${(d.y ?? 0) - 25})`)
     })
     
     // Create drag behavior
-    function drag(simulation: any) {
-      function dragstarted(event: any) {
+    function drag(simulation: d3.Simulation<GraphNode, GraphLink>) {
+      type DragEvent = d3.D3DragEvent<SVGGElement, GraphNode, GraphNode>
+
+      function dragstarted(event: DragEvent) {
         if (!event.active) simulation.alphaTarget(0.3).restart()
         event.subject.fx = event.subject.x
         event.subject.fy = event.subject.y
       }
-      
-      function dragged(event: any) {
+
+      function dragged(event: DragEvent) {
         event.subject.fx = event.x
         event.subject.fy = event.y
       }
-      
-      function dragended(event: any) {
+
+      function dragended(event: DragEvent) {
         if (!event.active) simulation.alphaTarget(0)
         // Keep the node fixed where it was dropped
         // This helps maintain a manually arranged layout
@@ -505,7 +515,7 @@ const renderGraph = (data: GraphData) => {
         // event.subject.fy = null
       }
       
-      return d3.drag()
+      return d3.drag<SVGGElement, GraphNode>()
         .on('start', dragstarted)
         .on('drag', dragged)
         .on('end', dragended)
@@ -518,7 +528,7 @@ const renderGraph = (data: GraphData) => {
       .scale(initialScale)
       .translate(-width / 2, -height / 2)
     
-    svg.call((zoom as any).transform, initialTransform)
+    svg.call(zoom.transform, initialTransform)
     
     // Run simulation for a bit to get a better initial layout
     for (let i = 0; i < 100; ++i) simulation.tick()
@@ -597,8 +607,8 @@ onMounted(() => {
         <UiButton 
           variant="outline" 
           size="sm" 
-          @click="loadSchema" 
-          :disabled="isLoading || (!connectionsStore.activeConnection && !props.schema)"
+          :disabled="isLoading || (!connectionsStore.activeConnection && !props.schema)" 
+          @click="loadSchema"
         >
           Reload
         </UiButton>
@@ -613,12 +623,12 @@ onMounted(() => {
     </div>
     
     <div v-if="isLoading" class="flex items-center justify-center gap-2 p-4 text-xs text-muted-foreground">
-      <div class="h-4 w-4 animate-spin rounded-full border-2 border-border-strong border-t-foreground"></div>
+      <div class="h-4 w-4 animate-spin rounded-full border-2 border-border-strong border-t-foreground"/>
       Loading schema…
     </div>
     
     <div v-else class="relative flex-1 overflow-hidden rounded-md border border-border">
-      <div ref="containerRef" class="w-full h-full" style="min-height: 600px;"></div>
+      <div ref="containerRef" class="w-full h-full" style="min-height: 600px;"/>
     </div>
   </div>
 </template>

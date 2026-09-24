@@ -1,18 +1,15 @@
-import { EditorView, hoverTooltip } from '@codemirror/view'
-import { type TypeDefinition } from '../useGraphQLSchemaParser'
+import { hoverTooltip } from '@codemirror/view'
+import type { TypeDefinition, TypeReference } from '../useGraphQLSchemaParser'
 
 export function createGraphQLHoverExtension(
   findTypeDefinition: (typeName: string) => TypeDefinition | undefined,
-  findTypeAtPosition: (position: number) => { name: string; location: any } | undefined
+  findTypeAtPosition: (position: number) => TypeReference | undefined
 ) {
-  return hoverTooltip((view, pos, side) => {
+  return hoverTooltip((view, pos) => {
     // Get the word at the current position
     const word = view.state.wordAt(pos)
     if (!word) return null
 
-    // Get the text of the word
-    const wordText = view.state.doc.sliceString(word.from, word.to)
-    
     // Check if this position corresponds to a type reference
     const typeRef = findTypeAtPosition(pos)
     if (!typeRef) return null

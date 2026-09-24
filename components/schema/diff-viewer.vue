@@ -130,7 +130,7 @@ useEventListener(window, 'keydown', (event: KeyboardEvent) => {
                   class="px-2 whitespace-pre"
                 >
                   <template v-if="line.leftContent !== null">
-                    <span v-html="line.leftContentHighlighted"></span>
+                    <span v-html="line.leftContentHighlighted"/>
                   </template>
                   <span v-else>&nbsp;</span>
                 </div>
@@ -154,7 +154,7 @@ useEventListener(window, 'keydown', (event: KeyboardEvent) => {
                   class="px-2 whitespace-pre"
                 >
                   <template v-if="line.rightContent !== null">
-                    <span v-html="line.rightContentHighlighted"></span>
+                    <span v-html="line.rightContentHighlighted"/>
                   </template>
                   <span v-else>&nbsp;</span>
                 </div>

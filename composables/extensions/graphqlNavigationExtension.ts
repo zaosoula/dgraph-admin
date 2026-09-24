@@ -1,6 +1,6 @@
 import { EditorView, Decoration, type DecorationSet } from '@codemirror/view'
-import { StateField, StateEffect, EditorState } from '@codemirror/state'
-import { type TypeDefinition } from '../useGraphQLSchemaParser'
+import { StateField, StateEffect } from '@codemirror/state'
+import type { TypeDefinition, TypeReference } from '../useGraphQLSchemaParser'
 
 // Effect to update hover state
 const setHoverEffect = StateEffect.define<{ from: number; to: number } | null>()
@@ -32,7 +32,7 @@ const hoverState = StateField.define<DecorationSet>({
 
 export function createGraphQLNavigationExtension(
   findTypeDefinition: (typeName: string) => TypeDefinition | undefined,
-  findTypeAtPosition: (position: number) => { name: string; location: any } | undefined
+  findTypeAtPosition: (position: number) => TypeReference | undefined
 ) {
   return [
     hoverState,
