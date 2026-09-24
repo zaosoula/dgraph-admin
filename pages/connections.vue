@@ -5,6 +5,7 @@ import { useCredentialStorage } from '@/composables/useCredentialStorage'
 import { useConnectionExportImport } from '@/composables/useConnectionExportImport'
 import { useToast } from '@/components/ui/toast'
 import type { ConnectionImportResult, ConnectionExportResult } from '@/composables/useConnectionExportImport'
+import { isVaultLockedError } from '@/utils/encryption'
 import { Plus, Download, Upload } from 'lucide-vue-next'
 
 useHead({
@@ -83,8 +84,16 @@ const deleteConnection = () => {
 
   const name = deletingConnection.value?.name
 
-  // Delete credentials first
-  credentialStorage.deleteCredentials(deletingConnectionId.value)
+  // Delete credentials first. A locked vault must not block the deletion: the
+  // connection still goes, and the orphaned ciphertext is reported so it can be
+  // cleared later rather than leaving the button doing nothing.
+  let orphanedCredentials = false
+  try {
+    credentialStorage.deleteCredentials(deletingConnectionId.value)
+  } catch (error) {
+    if (!isVaultLockedError(error)) throw error
+    orphanedCredentials = true
+  }
 
   // Then delete the connection
   connectionsStore.removeConnection(deletingConnectionId.value)
@@ -93,10 +102,17 @@ const deleteConnection = () => {
   showDeleteConfirm.value = false
   deletingConnectionId.value = null
 
-  toast.info(
-    'Connection deleted',
-    name ? `${name} and its stored credentials were removed.` : undefined
-  )
+  if (orphanedCredentials) {
+    toast.warning(
+      'Connection deleted',
+      `${name ?? 'The connection'} was removed, but its stored credentials could not be cleared while the vault is locked. Unlock in Settings and use "Clear all credentials".`
+    )
+  } else {
+    toast.info(
+      'Connection deleted',
+      name ? `${name} and its stored credentials were removed.` : undefined
+    )
+  }
 }
 
 // Export connections

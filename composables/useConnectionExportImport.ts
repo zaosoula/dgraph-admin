@@ -96,8 +96,14 @@ export const useConnectionExportImport = () => {
       exportedAt: new Date().toISOString()
     }
 
+    // Derived from the copy, not the request: asking for credentials on a
+    // connection that has none must not produce a plaintext warning about a
+    // file that contains none.
+    const includedCredentials = carriesSecrets(copy.credentials)
+    exportData.includesCredentials = includedCredentials
+
     downloadJson(exportData, `dgraph-connection-${connection.name.replace(/\s+/g, '-').toLowerCase()}.json`)
-    return { ok: true, includedCredentials: includeCredentials, count: 1 }
+    return { ok: true, includedCredentials, count: 1 }
   }
 
   /**
@@ -123,8 +129,11 @@ export const useConnectionExportImport = () => {
       exportedAt: new Date().toISOString()
     }
 
+    const includedCredentials = copies.some(copy => carriesSecrets(copy.credentials))
+    exportData.includesCredentials = includedCredentials
+
     downloadJson(exportData, 'dgraph-connections.json')
-    return { ok: true, includedCredentials: includeCredentials, count: copies.length }
+    return { ok: true, includedCredentials, count: copies.length }
   }
 
   const normalizeCredentials = (credentials: ConnectionCredentials): ConnectionCredentials => {

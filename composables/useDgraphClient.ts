@@ -194,7 +194,9 @@ export const useDgraphClient = () => {
     if (!result.error && connectionsStore.activeConnectionId) {
       const connectionId = connectionsStore.activeConnectionId
       import('@/composables/useSchemaSyncStatus').then(({ useSchemaSyncStatus }) => {
-        useSchemaSyncStatus().refreshForConnection(connectionId)
+        // Returned, so a rejection from the refresh reaches the catch below
+        // rather than escaping as an unhandled rejection.
+        return useSchemaSyncStatus().refreshForConnection(connectionId)
       }).catch((error) => {
         console.error('Failed to refresh schema sync status after write:', error)
       })
