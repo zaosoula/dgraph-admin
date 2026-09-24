@@ -2,11 +2,35 @@ import { ref, computed, watch } from 'vue'
 import { useConnectionsStore } from '@/stores/connections'
 import { useCredentialStorage } from '@/composables/useCredentialStorage'
 import { DgraphClient } from '@/utils/dgraph-client'
-import type { Connection } from '@/types/connection'
+import type { Connection, ConnectionTestResult } from '@/types/connection'
+
+/**
+ * Build a DgraphClient aimed at a specific connection, resolving stored
+ * credentials when the connection is secure. Safe to call outside of a
+ * component setup: it registers no reactive effects.
+ */
+export const createClientForConnection = (connection: Connection): DgraphClient => {
+  const { getCredentials } = useCredentialStorage()
+
+  if (connection.isSecure) {
+    // Deliberately not caught: a locked vault must surface as "unlock to
+    // continue", never as a client that sends the connection's empty
+    // placeholder credentials and fails with an opaque auth error.
+    const storedCredentials = getCredentials(connection.id)
+
+    if (storedCredentials) {
+      return new DgraphClient({
+        ...connection,
+        credentials: storedCredentials
+      })
+    }
+  }
+
+  return new DgraphClient(connection)
+}
 
 export const useDgraphClient = () => {
   const connectionsStore = useConnectionsStore()
-  const credentialStorage = useCredentialStorage()
   
   const client = ref<DgraphClient | null>(null)
   const isInitialized = computed(() => client.value !== null)
@@ -29,24 +53,7 @@ export const useDgraphClient = () => {
     }
     
     try {
-      // Get stored credentials if the connection is secure
-      if (activeConnection.isSecure) {
-        const storedCredentials = credentialStorage.getCredentials(activeConnection.id)
-        
-        if (storedCredentials) {
-          // Create a new connection object with the stored credentials
-          const connectionWithCredentials = {
-            ...activeConnection,
-            credentials: storedCredentials
-          }
-          
-          client.value = new DgraphClient(connectionWithCredentials)
-          return true
-        }
-      }
-      
-      // If not secure or no stored credentials, use the connection as is
-      client.value = new DgraphClient(activeConnection)
+      client.value = createClientForConnection(activeConnection)
       return true
     } catch (error) {
       console.error('Failed to initialize Dgraph client:', error)
@@ -71,22 +78,7 @@ export const useDgraphClient = () => {
     })
     
     try {
-      let connectionWithCredentials = connectionToTest;
-      
-      // Get stored credentials if the connection is secure
-      if (connectionToTest.isSecure) {
-        const storedCredentials = credentialStorage.getCredentials(connectionToTest.id)
-        
-        if (storedCredentials) {
-          // Create a new connection object with the stored credentials
-          connectionWithCredentials = {
-            ...connectionToTest,
-            credentials: storedCredentials
-          }
-        }
-      }
-      
-      const testClient = new DgraphClient(connectionWithCredentials)
+      const testClient = createClientForConnection(connectionToTest)
       const testResults = await testClient.testConnection()
       
       // Update connection state with detailed results
@@ -148,8 +140,8 @@ export const useDgraphClient = () => {
   }
   
   // Helper function to get a meaningful error message from test results
-  const getConnectionErrorMessage = (testResults: any) => {
-    const errors = []
+  const getConnectionErrorMessage = (testResults: ConnectionTestResult) => {
+    const errors: string[] = []
     if (!testResults.adminHealth.success) {
       errors.push(`Admin: ${testResults.adminHealth.error}`)
     }
@@ -193,11 +185,28 @@ export const useDgraphClient = () => {
       }
     }
     
-    return await client.value!.updateSchema(schema)
+    const result = await client.value!.updateSchema(schema)
+
+    // A successful write makes any cached dev/prod comparison involving this
+    // connection untrue, so refresh the affected pairs rather than leaving a
+    // stale "Synced" badge on screen. Dynamic import breaks the cycle back
+    // through useSchemaPromotion into this composable.
+    if (!result.error && connectionsStore.activeConnectionId) {
+      const connectionId = connectionsStore.activeConnectionId
+      import('@/composables/useSchemaSyncStatus').then(({ useSchemaSyncStatus }) => {
+        // Returned, so a rejection from the refresh reaches the catch below
+        // rather than escaping as an unhandled rejection.
+        return useSchemaSyncStatus().refreshForConnection(connectionId)
+      }).catch((error) => {
+        console.error('Failed to refresh schema sync status after write:', error)
+      })
+    }
+
+    return result
   }
   
   // Execute query
-  const executeQuery = async <T>(query: string, variables?: Record<string, any>) => {
+  const executeQuery = async <T>(query: string, variables?: Record<string, unknown>) => {
     if (!client.value) {
       const initialized = initializeClient()
       if (!initialized) {
@@ -223,22 +232,7 @@ export const useDgraphClient = () => {
     }
     
     try {
-      let connectionWithCredentials = connectionToTest;
-      
-      // Get stored credentials if the connection is secure
-      if (connectionToTest.isSecure) {
-        const storedCredentials = credentialStorage.getCredentials(connectionToTest.id)
-        
-        if (storedCredentials) {
-          // Create a new connection object with the stored credentials
-          connectionWithCredentials = {
-            ...connectionToTest,
-            credentials: storedCredentials
-          }
-        }
-      }
-      
-      const testClient = new DgraphClient(connectionWithCredentials)
+      const testClient = createClientForConnection(connectionToTest)
       return await testClient.testConnection()
     } catch (error) {
       console.error('Detailed connection test failed:', error)

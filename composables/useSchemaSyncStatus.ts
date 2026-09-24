@@ -15,14 +15,16 @@ export type SchemaSyncStatus = {
   error: string | null
 }
 
+// Module-scope state — shared by every consumer of this composable, so a second
+// caller (sidebar badge, connection list, ...) sees the same sync results.
+const syncStatuses = ref<Record<string, SchemaSyncStatus>>({})
+const isCheckingAll = ref(false)
+const checkProgress = ref(0)
+
 export const useSchemaSyncStatus = () => {
   const connectionsStore = useConnectionsStore()
   const { compareSchemas } = useSchemaPromotion()
   const { addActivity } = useActivityHistory()
-
-  const syncStatuses = ref<Record<string, SchemaSyncStatus>>({})
-  const isCheckingAll = ref(false)
-  const checkProgress = ref(0)
 
   // Get sync status for a specific connection
   const getSyncStatus = computed(() => (connectionId: string): SchemaSyncStatus | null => {
@@ -103,19 +105,10 @@ export const useSchemaSyncStatus = () => {
         status.lastChecked = new Date()
         status.error = null
 
-        // Log activity
-        addActivity({
-          type: 'schema_comparison',
-          action: comparisonResult.hasDifferences 
-            ? 'Schema differences detected' 
-            : 'Schemas are in sync',
-          connectionName: connection.name,
-          connectionId: connection.id,
-          status: comparisonResult.hasDifferences ? 'warning' : 'success',
-          details: comparisonResult.hasDifferences 
-            ? `${comparisonResult.differences?.length || 0} differences found`
-            : 'Development and production schemas match'
-        })
+        // No activity logged here: `compareSchemas` already recorded this exact
+        // comparison. Logging again wrote two rows per check, and with the
+        // history now a shared store that burned the 25-entry cap on
+        // duplicates and evicted real history.
       } else {
         status.error = 'Failed to compare schemas'
         status.hasDifferences = null
@@ -210,6 +203,99 @@ export const useSchemaSyncStatus = () => {
     }
   }
 
+  /**
+   * Development connections whose sync status a write to `connectionId` invalidates.
+   *
+   * Writing a development instance changes one side of its own pair. Writing a
+   * production instance changes the other side of every pair pointing at it, so
+   * a single promotion target can stale several rows at once.
+   */
+  const pairsAffectedBy = (connectionId: string): Connection[] => {
+    const written = connectionsStore.connections.find(conn => conn.id === connectionId)
+    if (!written) return []
+
+    if (written.environment === 'Production') {
+      return connectionsStore.connections.filter(conn => conn.linkedProductionId === connectionId)
+    }
+
+    return written.linkedProductionId ? [written] : []
+  }
+
+  /** Drop cached results a write to `connectionId` has made untrue. */
+  const invalidateForConnection = (connectionId: string) => {
+    pairsAffectedBy(connectionId).forEach(conn => {
+      const status = syncStatuses.value[conn.id]
+      if (!status) return
+
+      status.hasDifferences = null
+      status.comparisonResult = null
+      status.lastChecked = null
+      status.error = null
+    })
+  }
+
+  /** Invalidate, then re-compare the affected pairs. Failures surface per status. */
+  const refreshForConnection = async (connectionId: string) => {
+    const affected = pairsAffectedBy(connectionId)
+    if (affected.length === 0) return
+
+    invalidateForConnection(connectionId)
+
+    await Promise.allSettled(
+      affected
+        // A check already in flight will observe the new schema anyway.
+        .filter(conn => !syncStatuses.value[conn.id]?.isChecking)
+        .map(conn => checkSyncStatus(conn))
+    )
+  }
+
+  /**
+   * Record a pair as synced without re-comparing.
+   *
+   * Straight after a successful promotion both sides hold the schema we just
+   * wrote, so spending two round-trips to rediscover that is pure latency.
+   */
+  const markPairSynced = (devConnectionId: string) => {
+    const connection = connectionsStore.connections.find(conn => conn.id === devConnectionId)
+    if (!connection?.linkedProductionId) return
+
+    syncStatuses.value[devConnectionId] = {
+      connectionId: devConnectionId,
+      linkedProductionId: connection.linkedProductionId,
+      isChecking: false,
+      lastChecked: new Date(),
+      hasDifferences: false,
+      comparisonResult: null,
+      error: null
+    }
+  }
+
+  /** Default window before a cached comparison is treated as stale. */
+  const DEFAULT_MAX_AGE_MS = 5 * 60 * 1000
+
+  /**
+   * Compare any pair that is unknown or older than `maxAgeMs`.
+   *
+   * Used on dashboard mount so the rows are not stuck on "Unknown" until
+   * someone presses Check All; a recent result is reused rather than refetched.
+   */
+  const ensureFreshStatuses = async ({ maxAgeMs = DEFAULT_MAX_AGE_MS }: { maxAgeMs?: number } = {}) => {
+    const now = Date.now()
+
+    const stale = promotableConnections.value.filter(conn => {
+      const status = syncStatuses.value[conn.id]
+      if (!status || status.isChecking) return !status
+      if (status.hasDifferences === null || !status.lastChecked) return true
+      return now - new Date(status.lastChecked).getTime() > maxAgeMs
+    })
+
+    if (stale.length === 0) return { checked: 0 }
+
+    await Promise.allSettled(stale.map(conn => checkSyncStatus(conn)))
+
+    return { checked: stale.length }
+  }
+
   // Clear sync status for a connection
   const clearSyncStatus = (connectionId: string) => {
     if (syncStatuses.value[connectionId]) {
@@ -252,6 +338,10 @@ export const useSchemaSyncStatus = () => {
     syncSummary,
     checkSyncStatus,
     checkAllSyncStatuses,
+    invalidateForConnection,
+    refreshForConnection,
+    markPairSynced,
+    ensureFreshStatuses,
     clearSyncStatus,
     clearAllSyncStatuses
   }

@@ -5,6 +5,9 @@
   "version": "0.0.4",
   "scripts": {
     "build": "nuxt build",
+    "typecheck": "nuxt typecheck",
+    "lint": "eslint .",
+    "lint:fix": "eslint . --fix",
     "dev": "nuxt dev --https",
     "generate": "nuxt generate",
     "preview": "nuxt preview",
@@ -14,7 +17,10 @@
     "release": "npx changelogen@latest --release --clean --push"
   },
   "dependencies": {
-    "@replit/codemirror-minimap": "^0.5.2",
+    "@codemirror/commands": "^6.11.1",
+    "@codemirror/language": "^6.12.4",
+    "@codemirror/state": "^6.7.5",
+    "@codemirror/view": "^6.43.12",
     "@vueuse/core": "^14.1.0",
     "class-variance-authority": "^0.7.1",
     "clsx": "^2.1.1",
@@ -37,6 +43,7 @@
   },
   "devDependencies": {
     "@nuxt/devtools": "latest",
+    "@nuxt/eslint-config": "^1.9.0",
     "@nuxtjs/tailwindcss": "7.0.0-beta.0",
     "@pinia/nuxt": "^0.5.1",
     "@types/crypto-js": "^4.2.1",
@@ -44,12 +51,13 @@
     "@types/diff": "^5.0.8",
     "@types/node": "^20.10.4",
     "@types/prismjs": "^1",
+    "eslint": "^10.4.0",
     "nuxt": "^3.10.0",
     "shadcn-nuxt": "2.4.3",
     "typescript": "^5.3.0",
     "vue": "^3.4.0",
     "vue-router": "^4.2.0",
-    "vue-tsc": "^1.8.0"
+    "vue-tsc": "^2.2.0"
   },
   "packageManager": "yarn@4.9.2+sha512.1fc009bc09d13cfd0e19efa44cbfc2b9cf6ca61482725eb35bbc5e257e093ebf4130db6dfe15d604ff4b79efd8e1e8e99b25fa7d0a6197c9f9826358d4d65c3c"
 }

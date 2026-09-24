@@ -1,4 +1,5 @@
-import { ref, computed, watch, type Ref } from 'vue'
+import { ref, computed, type Ref } from 'vue'
+import { watchDebounced } from '@vueuse/core'
 import { parse, visit, type DocumentNode, type TypeDefinitionNode, type FieldDefinitionNode, type Location } from 'graphql'
 
 export type TypeDefinition = {
@@ -306,8 +307,10 @@ export function useGraphQLSchemaParser(schemaText: Ref<string>) {
     return Array.from(typeDefinitions.value.keys())
   })
 
-  // Watch for schema changes and reparse
-  watch(schemaText, parseSchema, { immediate: true })
+  // Parse once up front, then debounce so typing does not re-run the full
+  // graphql parse + visit on every keystroke.
+  parseSchema()
+  watchDebounced(schemaText, parseSchema, { debounce: 200 })
 
   return {
     typeDefinitions: computed(() => typeDefinitions.value),

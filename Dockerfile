@@ -5,11 +5,13 @@ WORKDIR /app
 
 RUN corepack enable
 
-# Copy package.json and your lockfile, here we add pnpm-lock.yaml for illustration
-COPY package.json yarn.lock .yarnrc.yml .yarn/ ./
+# Copy the manifest, the lockfile, the Yarn settings and the vendored Yarn state.
+# `.yarn/` must keep its own directory so `.yarn/cache` is found by Yarn.
+COPY package.json yarn.lock .yarnrc.yml ./
+COPY .yarn/ ./.yarn/
 
-# Install dependencies
-RUN yarn install
+# Install dependencies (--immutable so the lockfile cannot drift during a build)
+RUN yarn install --immutable
 
 # Copy the entire project
 COPY . ./

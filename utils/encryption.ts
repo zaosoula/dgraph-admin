@@ -1,41 +1,47 @@
 import CryptoJS from 'crypto-js'
 
-// Generate a random encryption key if not already stored
+/**
+ * Credential obfuscation for the browser.
+ *
+ * A random key is generated once and kept in `localStorage` next to the
+ * ciphertext. This is obfuscation, not encryption — any script running on this
+ * origin can read the key and therefore the credentials. It only keeps
+ * plaintext secrets out of a casual glance at storage.
+ *
+ * Anything stronger has to keep key material out of storage entirely, which
+ * means asking the user for it on every page load. See the Security section of
+ * the README for what this does and does not protect against.
+ */
+
+const KEY_STORAGE_KEY = 'dgraph_admin_encryption_key'
+
+// Generate (or reuse) the random key kept beside the ciphertext.
 const getEncryptionKey = (): string => {
-  const storedKey = localStorage.getItem('dgraph_admin_encryption_key')
-  
+  const storedKey = localStorage.getItem(KEY_STORAGE_KEY)
+
   if (storedKey) {
     return storedKey
   }
-  
-  // Generate a new random key
+
   const newKey = CryptoJS.lib.WordArray.random(16).toString()
-  localStorage.setItem('dgraph_admin_encryption_key', newKey)
-  
+  localStorage.setItem(KEY_STORAGE_KEY, newKey)
+
   return newKey
 }
 
-// Encrypt data
 export const encrypt = (data: string): string => {
-  const key = getEncryptionKey()
-  return CryptoJS.AES.encrypt(data, key).toString()
+  return CryptoJS.AES.encrypt(data, getEncryptionKey()).toString()
 }
 
-// Decrypt data
 export const decrypt = (encryptedData: string): string => {
-  const key = getEncryptionKey()
-  const bytes = CryptoJS.AES.decrypt(encryptedData, key)
+  const bytes = CryptoJS.AES.decrypt(encryptedData, getEncryptionKey())
   return bytes.toString(CryptoJS.enc.Utf8)
 }
 
-// Encrypt an object
 export const encryptObject = <T>(obj: T): string => {
   return encrypt(JSON.stringify(obj))
 }
 
-// Decrypt an object
 export const decryptObject = <T>(encryptedData: string): T => {
-  const decrypted = decrypt(encryptedData)
-  return JSON.parse(decrypted) as T
+  return JSON.parse(decrypt(encryptedData)) as T
 }
-

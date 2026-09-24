@@ -1,155 +1,33 @@
-import { ref, computed } from 'vue'
+import { computed } from 'vue'
+import {
+  useActivityStore,
+  formatRelativeTime,
+  getActivityIcon,
+  getActivityColor
+} from '@/stores/activity'
+import type { Activity, ActivityStatus, ActivityType } from '@/stores/activity'
 
-export type ActivityType = 'connection_test' | 'schema_comparison' | 'schema_promotion' | 'connection_added' | 'connection_removed'
+export type { Activity, ActivityStatus, ActivityType }
 
-export type ActivityStatus = 'success' | 'error' | 'warning' | 'info'
-
-export type Activity = {
-  id: string
-  type: ActivityType
-  action: string
-  connectionName: string
-  connectionId: string
-  timestamp: Date
-  status: ActivityStatus
-  details?: string
-  error?: string
-}
-
-const MAX_ACTIVITIES = 25 // Reduced to prevent memory issues
-
+/**
+ * Thin wrapper over the activity Pinia store.
+ *
+ * The state used to live inside this factory, which meant every caller got its
+ * own empty list and the dashboard feed could never show anything. All state now
+ * lives in `stores/activity.ts`; this wrapper only keeps the call sites stable.
+ */
 export const useActivityHistory = () => {
-  const activities = ref<Activity[]>([])
-
-  // Add a new activity to the history
-  const addActivity = (activity: Omit<Activity, 'id' | 'timestamp'>) => {
-    const newActivity: Activity = {
-      ...activity,
-      id: crypto.randomUUID(),
-      timestamp: new Date()
-    }
-
-    activities.value.unshift(newActivity)
-
-    // Keep only the most recent activities
-    if (activities.value.length > MAX_ACTIVITIES) {
-      activities.value = activities.value.slice(0, MAX_ACTIVITIES)
-    }
-  }
-
-  // Get recent activities (default: last 10)
-  const getRecentActivities = computed(() => (limit: number = 10) => {
-    return activities.value.slice(0, limit)
-  })
-
-  // Get activities by type
-  const getActivitiesByType = computed(() => (type: ActivityType, limit: number = 10) => {
-    return activities.value
-      .filter(activity => activity.type === type)
-      .slice(0, limit)
-  })
-
-  // Get activities by connection
-  const getActivitiesByConnection = computed(() => (connectionId: string, limit: number = 10) => {
-    return activities.value
-      .filter(activity => activity.connectionId === connectionId)
-      .slice(0, limit)
-  })
-
-  // Get activities by status
-  const getActivitiesByStatus = computed(() => (status: ActivityStatus, limit: number = 10) => {
-    return activities.value
-      .filter(activity => activity.status === status)
-      .slice(0, limit)
-  })
-
-  // Clear all activities
-  const clearActivities = () => {
-    activities.value = []
-  }
-
-  // Get activity counts by status
-  const activityCounts = computed(() => {
-    const counts = {
-      success: 0,
-      error: 0,
-      warning: 0,
-      info: 0,
-      total: activities.value.length
-    }
-
-    activities.value.forEach(activity => {
-      counts[activity.status]++
-    })
-
-    return counts
-  })
-
-  // Helper to format relative time
-  const formatRelativeTime = (date: Date): string => {
-    const now = new Date()
-    const diffInSeconds = Math.floor((now.getTime() - date.getTime()) / 1000)
-
-    if (diffInSeconds < 60) {
-      return 'just now'
-    } else if (diffInSeconds < 3600) {
-      const minutes = Math.floor(diffInSeconds / 60)
-      return `${minutes} minute${minutes > 1 ? 's' : ''} ago`
-    } else if (diffInSeconds < 86400) {
-      const hours = Math.floor(diffInSeconds / 3600)
-      return `${hours} hour${hours > 1 ? 's' : ''} ago`
-    } else {
-      const days = Math.floor(diffInSeconds / 86400)
-      return `${days} day${days > 1 ? 's' : ''} ago`
-    }
-  }
-
-  // Helper to get activity icon based on type and status
-  const getActivityIcon = (activity: Activity): string => {
-    if (activity.status === 'error') return 'AlertCircle'
-    if (activity.status === 'warning') return 'AlertTriangle'
-    if (activity.status === 'success') return 'CheckCircle'
-
-    switch (activity.type) {
-      case 'connection_test':
-        return 'Activity'
-      case 'schema_comparison':
-        return 'GitCompare'
-      case 'schema_promotion':
-        return 'GitBranch'
-      case 'connection_added':
-        return 'Plus'
-      case 'connection_removed':
-        return 'Minus'
-      default:
-        return 'Info'
-    }
-  }
-
-  // Helper to get activity color based on status
-  const getActivityColor = (status: ActivityStatus): string => {
-    switch (status) {
-      case 'success':
-        return 'text-green-500'
-      case 'error':
-        return 'text-red-500'
-      case 'warning':
-        return 'text-yellow-500'
-      case 'info':
-      default:
-        return 'text-blue-500'
-    }
-  }
+  const store = useActivityStore()
 
   return {
-    activities,
-    addActivity,
-    getRecentActivities,
-    getActivitiesByType,
-    getActivitiesByConnection,
-    getActivitiesByStatus,
-    clearActivities,
-    activityCounts,
+    activities: computed(() => store.activities),
+    addActivity: store.addActivity,
+    getRecentActivities: computed(() => store.getRecentActivities),
+    getActivitiesByType: computed(() => store.getActivitiesByType),
+    getActivitiesByConnection: computed(() => store.getActivitiesByConnection),
+    getActivitiesByStatus: computed(() => store.getActivitiesByStatus),
+    clearActivities: store.clearActivities,
+    activityCounts: computed(() => store.activityCounts),
     formatRelativeTime,
     getActivityIcon,
     getActivityColor

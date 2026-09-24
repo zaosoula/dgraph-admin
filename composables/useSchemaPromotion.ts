@@ -1,16 +1,19 @@
 import { ref } from 'vue'
-import { useDgraphClient } from '@/composables/useDgraphClient'
+import { diffLines } from 'diff'
+import { createClientForConnection } from '@/composables/useDgraphClient'
 import { useConnectionsStore } from '@/stores/connections'
 import type { Connection } from '@/types/connection'
+
+export type SchemaContext = {
+  typeName: string
+  typeKind: 'type' | 'enum' | 'directive' | 'scalar'
+  fieldName?: string
+}
 
 export type SchemaDifference = {
   type: 'added' | 'removed'
   line: string
-  context?: {
-    typeName: string
-    typeKind: 'type' | 'enum' | 'directive' | 'scalar'
-    fieldName?: string
-  }
+  context?: SchemaContext
 }
 
 export type SchemaComparisonResult = {
@@ -33,9 +36,9 @@ export const useSchemaPromotion = () => {
   const isComparing = ref(false)
 
   // Helper function to parse schema and extract type/enum context
-  const parseSchemaContext = (schema: string): Map<number, { typeName: string; typeKind: 'type' | 'enum' | 'directive' | 'scalar'; fieldName?: string }> => {
+  const parseSchemaContext = (schema: string): Map<number, SchemaContext> => {
     const lines = schema.split('\n')
-    const contextMap = new Map()
+    const contextMap = new Map<number, SchemaContext>()
     let currentType: string | null = null
     let currentTypeKind: 'type' | 'enum' | 'directive' | 'scalar' | null = null
 
@@ -104,6 +107,13 @@ export const useSchemaPromotion = () => {
 
       // Reset when we encounter a closing brace
       if (trimmedLine === '}') {
+        // Attribute the brace to the type it closes before clearing. Without
+        // this a wholly-added type shows its fields under the type heading but
+        // strands the trailing `}` under "Outside any type".
+        if (currentType && currentTypeKind) {
+          contextMap.set(index, { typeName: currentType, typeKind: currentTypeKind })
+        }
+
         currentType = null
         currentTypeKind = null
       }
@@ -112,37 +122,68 @@ export const useSchemaPromotion = () => {
     return contextMap
   }
 
-  // Enhanced diff function that includes context
+  // Split a diff chunk into its lines, dropping the artefact of a trailing newline
+  const chunkToLines = (value: string): string[] => {
+    const lines = value.split('\n')
+
+    if (lines.length > 0 && lines[lines.length - 1] === '') {
+      lines.pop()
+    }
+
+    return lines
+  }
+
+  // Enhanced diff function that includes context.
+  // Line indices are tracked against the ORIGINAL (unfiltered) schemas so that
+  // context lookups line up with the maps built by parseSchemaContext.
   const createEnhancedDifferences = (devSchema: string, prodSchema: string): SchemaDifference[] => {
-    const devLines = devSchema.split('\n').filter(line => line.trim())
-    const prodLines = prodSchema.split('\n').filter(line => line.trim())
     const devContext = parseSchemaContext(devSchema)
     const prodContext = parseSchemaContext(prodSchema)
-    
+
+    // Old text is production, new text is development:
+    // an added chunk exists only in dev, a removed chunk only in production.
+    const changes = diffLines(prodSchema, devSchema)
+
     const differences: SchemaDifference[] = []
+    let devLineIndex = 0
+    let prodLineIndex = 0
 
-    // Find lines in dev but not in prod (added)
-    devLines.forEach((line, index) => {
-      if (!prodLines.includes(line)) {
-        const context = devContext.get(index)
-        differences.push({
-          type: 'added',
-          line: line.trim(),
-          context
-        })
-      }
-    })
+    changes.forEach(change => {
+      const lines = chunkToLines(change.value)
 
-    // Find lines in prod but not in dev (removed)
-    prodLines.forEach((line, index) => {
-      if (!devLines.includes(line)) {
-        const context = prodContext.get(index)
-        differences.push({
-          type: 'removed',
-          line: line.trim(),
-          context
+      if (change.added) {
+        lines.forEach((line, offset) => {
+          if (line.trim()) {
+            differences.push({
+              type: 'added',
+              line: line.trim(),
+              context: devContext.get(devLineIndex + offset)
+            })
+          }
         })
+
+        devLineIndex += lines.length
+        return
       }
+
+      if (change.removed) {
+        lines.forEach((line, offset) => {
+          if (line.trim()) {
+            differences.push({
+              type: 'removed',
+              line: line.trim(),
+              context: prodContext.get(prodLineIndex + offset)
+            })
+          }
+        })
+
+        prodLineIndex += lines.length
+        return
+      }
+
+      // Unchanged chunk: advance both cursors
+      devLineIndex += lines.length
+      prodLineIndex += lines.length
     })
 
     return differences
@@ -153,32 +194,23 @@ export const useSchemaPromotion = () => {
     isComparing.value = true
     
     try {
-      // Create separate clients for dev and prod connections
-      const { getSchema: getDevSchema } = useDgraphClient()
-      const { getSchema: getProdSchema } = useDgraphClient()
+      // Explicitly targeted clients: never retarget through the active connection
+      const devClient = createClientForConnection(devConnection)
+      const prodClient = createClientForConnection(prodConnection)
       
-      // Get dev schema
-      const originalActiveId = connectionsStore.activeConnectionId
-      connectionsStore.setActiveConnection(devConnection.id)
-      const devSchemaResult = await getDevSchema()
+      const [devSchemaResult, prodSchemaResult] = await Promise.all([
+        devClient.getSchema(),
+        prodClient.getSchema()
+      ])
       
       if (devSchemaResult.error) {
         console.error('Failed to get dev schema:', devSchemaResult.error)
         return null
       }
       
-      // Get prod schema
-      connectionsStore.setActiveConnection(prodConnection.id)
-      const prodSchemaResult = await getProdSchema()
-      
       if (prodSchemaResult.error) {
         console.error('Failed to get prod schema:', prodSchemaResult.error)
         return null
-      }
-      
-      // Restore original active connection
-      if (originalActiveId) {
-        connectionsStore.setActiveConnection(originalActiveId)
       }
       
       const devSchema = devSchemaResult.data?.schema || ''
@@ -194,22 +226,9 @@ export const useSchemaPromotion = () => {
         // Create enhanced differences with context
         enhancedDifferences = createEnhancedDifferences(devSchema, prodSchema)
         
-        // Also create basic diff for backward compatibility
-        const devLines = devSchema.split('\n').filter(line => line.trim())
-        const prodLines = prodSchema.split('\n').filter(line => line.trim())
-        
-        // Find lines in dev but not in prod
-        devLines.forEach(line => {
-          if (!prodLines.includes(line)) {
-            differences.push(`+ ${line}`)
-          }
-        })
-        
-        // Find lines in prod but not in dev
-        prodLines.forEach(line => {
-          if (!devLines.includes(line)) {
-            differences.push(`- ${line}`)
-          }
+        // Basic diff, kept for backward compatibility, derived from the same comparison
+        enhancedDifferences.forEach(difference => {
+          differences.push(`${difference.type === 'added' ? '+' : '-'} ${difference.line}`)
         })
       }
       
@@ -265,12 +284,12 @@ export const useSchemaPromotion = () => {
     isPromoting.value = true
     
     try {
-      const { getSchema, updateSchema } = useDgraphClient()
+      // Explicitly targeted clients: never retarget through the active connection
+      const devClient = createClientForConnection(devConnection)
+      const prodClient = createClientForConnection(prodConnection)
       
       // First, get the dev schema
-      const originalActiveId = connectionsStore.activeConnectionId
-      connectionsStore.setActiveConnection(devConnection.id)
-      const devSchemaResult = await getSchema()
+      const devSchemaResult = await devClient.getSchema()
       
       if (devSchemaResult.error) {
         return {
@@ -282,17 +301,11 @@ export const useSchemaPromotion = () => {
       const devSchema = devSchemaResult.data?.schema || ''
       
       // Get current production schema for backup
-      connectionsStore.setActiveConnection(prodConnection.id)
-      const prodSchemaResult = await getSchema()
+      const prodSchemaResult = await prodClient.getSchema()
       const backupSchema = prodSchemaResult.data?.schema || ''
       
       // Update production schema with dev schema
-      const updateResult = await updateSchema(devSchema)
-      
-      // Restore original active connection
-      if (originalActiveId) {
-        connectionsStore.setActiveConnection(originalActiveId)
-      }
+      const updateResult = await prodClient.updateSchema(devSchema)
       
       if (updateResult.error) {
         const result = {
@@ -322,6 +335,11 @@ export const useSchemaPromotion = () => {
         success: true,
         backupSchema
       }
+
+      // Both sides now hold the schema we just wrote, so record that directly
+      // instead of spending two round-trips rediscovering it.
+      const { useSchemaSyncStatus } = await import('@/composables/useSchemaSyncStatus')
+      useSchemaSyncStatus().markPairSynced(devConnection.id)
 
       // Log success activity
       const { useActivityHistory } = await import('@/composables/useActivityHistory')
@@ -363,6 +381,76 @@ export const useSchemaPromotion = () => {
     }
   }
 
+  // Restore a previously captured schema onto a connection (rollback of a promotion)
+  const restoreSchema = async (connection: Connection, schema: string): Promise<PromotionResult> => {
+    isPromoting.value = true
+    
+    try {
+      const client = createClientForConnection(connection)
+      
+      // Capture what is currently live before overwriting it again
+      const currentSchemaResult = await client.getSchema()
+      const backupSchema = currentSchemaResult.data?.schema || ''
+      
+      const updateResult = await client.updateSchema(schema)
+      
+      const { useActivityHistory } = await import('@/composables/useActivityHistory')
+      const { addActivity } = useActivityHistory()
+      
+      if (updateResult.error) {
+        const error = `Failed to restore schema: ${updateResult.error.message}`
+        
+        addActivity({
+          type: 'schema_promotion',
+          action: 'Schema rollback failed',
+          connectionName: connection.name,
+          connectionId: connection.id,
+          status: 'error',
+          details: `Failed to restore the backup schema on ${connection.name}`,
+          error
+        })
+        
+        return { success: false, error, backupSchema }
+      }
+      
+      addActivity({
+        type: 'schema_promotion',
+        action: 'Schema rolled back',
+        connectionName: connection.name,
+        connectionId: connection.id,
+        status: 'success',
+        details: `Backup schema restored on ${connection.name}`
+      })
+
+      // A rollback moves one side of the pair; re-compare rather than assume.
+      const { useSchemaSyncStatus } = await import('@/composables/useSchemaSyncStatus')
+      useSchemaSyncStatus().refreshForConnection(connection.id).catch((error) => {
+        console.error('Failed to refresh schema sync status after rollback:', error)
+      })
+
+      return { success: true, backupSchema }
+    } catch (error) {
+      const errorMessage = error instanceof Error ? error.message : String(error)
+      
+      const { useActivityHistory } = await import('@/composables/useActivityHistory')
+      const { addActivity } = useActivityHistory()
+      
+      addActivity({
+        type: 'schema_promotion',
+        action: 'Schema rollback failed',
+        connectionName: connection.name,
+        connectionId: connection.id,
+        status: 'error',
+        details: 'Schema rollback encountered an error',
+        error: errorMessage
+      })
+      
+      return { success: false, error: errorMessage }
+    } finally {
+      isPromoting.value = false
+    }
+  }
+
   // Validate that promotion is possible
   const canPromote = (devConnection: Connection): boolean => {
     if (devConnection.environment !== 'Development') {
@@ -382,6 +470,7 @@ export const useSchemaPromotion = () => {
     isComparing,
     compareSchemas,
     promoteSchema,
+    restoreSchema,
     canPromote
   }
 }

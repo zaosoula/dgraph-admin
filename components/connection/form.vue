@@ -1,9 +1,11 @@
 <script setup lang="ts">
-import { ref, reactive, onMounted } from "vue";
+import { ref, reactive, computed, onMounted } from "vue";
 import { useConnectionsStore } from "@/stores/connections";
 import { useCredentialStorage } from "@/composables/useCredentialStorage";
 import { useDgraphClient } from "@/composables/useDgraphClient";
+import { AlertTriangle, CheckCircle2 } from "lucide-vue-next";
 import {
+  type AuthCredentials,
   type Connection,
   type ConnectionType,
   type AuthMethod,
@@ -26,6 +28,7 @@ const dgraphClient = useDgraphClient();
 
 const isLoading = ref(false);
 const testResult = ref<ConnectionTestResult | null>(null);
+const saveError = ref<string | null>(null);
 
 // Form state
 const formState = reactive({
@@ -59,6 +62,43 @@ const formState = reactive({
   },
 });
 
+type AuthFormState = {
+  method: AuthMethod;
+  username: string;
+  password: string;
+  apiKey: string;
+  token: string;
+  authToken: string;
+  dgAuth: string;
+};
+
+// Legacy records were stored without a `method`. Only for those do we guess
+// the method from whichever fields happen to be filled in.
+const inferAuthMethod = (stored: AuthCredentials): AuthMethod => {
+  if (stored.username && stored.password) return "basic";
+  if (stored.token) return "token";
+  if (stored.apiKey) return "api-key";
+  if (stored.authToken) return "auth-token";
+  if (stored.dgAuth) return "dg-auth";
+  return "none";
+};
+
+// Copy a stored credential block into the form. The stored `method` is
+// authoritative: sniffing the fields would resurrect an old method the user
+// has since switched away from.
+const applyStoredCredentials = (
+  target: AuthFormState,
+  stored: AuthCredentials
+) => {
+  target.username = stored.username || "";
+  target.password = stored.password || "";
+  target.apiKey = stored.apiKey || "";
+  target.token = stored.token || "";
+  target.authToken = stored.authToken || "";
+  target.dgAuth = stored.dgAuth || "";
+  target.method = stored.method || inferAuthMethod(stored);
+};
+
 // Load credentials when editing a connection
 onMounted(() => {
   if (props.connection) {
@@ -68,59 +108,22 @@ onMounted(() => {
     );
 
     if (storedCredentials) {
-      // Determine the authentication method based on the stored credentials
       if (storedCredentials.graphql) {
-        const graphql = storedCredentials.graphql;
-
-        // Set the method based on which credential is present
-        if (graphql.username && graphql.password) {
-          formState.credentials.graphql.method = "basic";
-          formState.credentials.graphql.username = graphql.username;
-          formState.credentials.graphql.password = graphql.password;
-        } else if (graphql.token) {
-          formState.credentials.graphql.method = "token";
-          formState.credentials.graphql.token = graphql.token;
-        } else if (graphql.apiKey) {
-          formState.credentials.graphql.method = "api-key";
-          formState.credentials.graphql.apiKey = graphql.apiKey;
-        } else if (graphql.authToken) {
-          formState.credentials.graphql.method = "auth-token";
-          formState.credentials.graphql.authToken = graphql.authToken;
-        } else if (graphql.dgAuth) {
-          formState.credentials.graphql.method = "dg-auth";
-          formState.credentials.graphql.dgAuth = graphql.dgAuth;
-        } else {
-          formState.credentials.graphql.method = "none";
-        }
+        applyStoredCredentials(
+          formState.credentials.graphql,
+          storedCredentials.graphql
+        );
       }
 
       if (storedCredentials.admin) {
-        const admin = storedCredentials.admin;
-
-        // Set the method based on which credential is present
-        if (admin.username && admin.password) {
-          formState.credentials.admin.method = "basic";
-          formState.credentials.admin.username = admin.username;
-          formState.credentials.admin.password = admin.password;
-        } else if (admin.token) {
-          formState.credentials.admin.method = "token";
-          formState.credentials.admin.token = admin.token;
-        } else if (admin.apiKey) {
-          formState.credentials.admin.method = "api-key";
-          formState.credentials.admin.apiKey = admin.apiKey;
-        } else if (admin.authToken) {
-          formState.credentials.admin.method = "auth-token";
-          formState.credentials.admin.authToken = admin.authToken;
-        } else if (admin.dgAuth) {
-          formState.credentials.admin.method = "dg-auth";
-          formState.credentials.admin.dgAuth = admin.dgAuth;
-        } else {
-          formState.credentials.admin.method = "none";
-        }
+        applyStoredCredentials(
+          formState.credentials.admin,
+          storedCredentials.admin
+        );
       }
 
       // Set the unified auth flag
-      formState.useUnifiedAuth = storedCredentials.useUnifiedAuth;
+      formState.useUnifiedAuth = storedCredentials.useUnifiedAuth ?? true;
     }
   }
 });
@@ -318,6 +321,7 @@ const saveConnection = async () => {
   if (!validate()) return;
 
   isLoading.value = true;
+  saveError.value = null;
 
   try {
     let connectionId: string;
@@ -372,26 +376,32 @@ const saveConnection = async () => {
       });
     }
 
-    // Save credentials separately
-    if (formState.isSecure) {
-      credentialStorage.saveCredentials(connectionId, credentials);
+    // Save credentials separately, or clear them out when the connection is
+    // no longer secure so nothing is left orphaned in storage. A failure here
+    // must not report success: the connection row would be updated while the
+    // credentials silently kept their old values.
+    const credentialsStored = formState.isSecure
+      ? credentialStorage.saveCredentials(connectionId, credentials)
+      : credentialStorage.deleteCredentials(connectionId);
+
+    if (!credentialsStored) {
+      saveError.value =
+        "Connection saved, but its credentials could not be stored. Check your browser storage and try again.";
+      return;
     }
 
     emit("saved", connectionId);
   } catch (error) {
     console.error("Failed to save connection:", error);
-    testResult.value = {
-      success: false,
-      message: `Error saving connection: ${error instanceof Error ? error.message : String(error)}`,
-    };
+    saveError.value = `Error saving connection: ${error instanceof Error ? error.message : String(error)}`;
   } finally {
     isLoading.value = false;
   }
 };
 
 // Helper function to create a clean credentials object based on the authentication method
-const createCredentialsObject = (credentials: any) => {
-  const result: any = { method: credentials.method };
+const createCredentialsObject = (credentials: AuthFormState): AuthCredentials => {
+  const result: AuthCredentials = { method: credentials.method };
 
   switch (credentials.method) {
     case "basic":
@@ -415,6 +425,30 @@ const createCredentialsObject = (credentials: any) => {
   return result;
 };
 
+// The three probes the connection test runs, in the order it runs them
+const testChecks = computed(() => {
+  const result = testResult.value;
+  if (!result) return [];
+
+  return [
+    {
+      label: "Admin health",
+      result: result.adminHealth,
+      description: "The /admin endpoint is reachable",
+    },
+    {
+      label: "Schema read",
+      result: result.adminSchemaRead,
+      description: "The schema can be read from /admin",
+    },
+    {
+      label: "Client query",
+      result: result.clientIntrospection,
+      description: "Introspection queries work on /graphql",
+    },
+  ];
+});
+
 // Cancel form
 const cancelForm = () => {
   emit("cancelled");
@@ -424,35 +458,35 @@ const cancelForm = () => {
 <template>
   <div class="space-y-6">
     <div class="space-y-2">
-      <label for="name" class="text-sm font-medium">Connection Name</label>
+      <label for="name" class="text-[13px] font-medium">Connection Name</label>
       <UiInput
         id="name"
         v-model="formState.name"
         placeholder="My Dgraph Instance"
         :class="errors.name ? 'border-destructive' : ''"
       />
-      <p v-if="errors.name" class="text-sm text-destructive">
+      <p v-if="errors.name" class="text-xs text-destructive">
         {{ errors.name }}
       </p>
     </div>
 
     <div class="space-y-2">
-      <label for="url" class="text-sm font-medium">URL</label>
+      <label for="url" class="text-[13px] font-medium">URL</label>
       <UiInput
         id="url"
         v-model="formState.url"
         placeholder="https://your-dgraph-instance.com"
         :class="errors.url ? 'border-destructive' : ''"
       />
-      <p v-if="errors.url" class="text-sm text-destructive">{{ errors.url }}</p>
+      <p v-if="errors.url" class="text-xs text-destructive">{{ errors.url }}</p>
     </div>
 
     <div class="space-y-2">
-      <label for="type" class="text-sm font-medium">Connection Type</label>
+      <label for="type" class="text-[13px] font-medium">Connection Type</label>
       <select
         id="type"
         v-model="formState.type"
-        class="flex h-9 w-full rounded-md border border-input bg-transparent px-3 py-1 text-sm shadow-sm transition-colors file:border-0 file:bg-transparent file:text-sm file:font-medium placeholder:text-muted-foreground focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-ring disabled:cursor-not-allowed disabled:opacity-50"
+        class="flex h-8 w-full rounded-md border border-input bg-card px-2.5 py-1 text-[13px] transition-colors outline-none focus-visible:border-ring focus-visible:ring-2 focus-visible:ring-ring/30 disabled:cursor-not-allowed disabled:opacity-50"
       >
         <option value="http">HTTP</option>
         <option value="grpc">gRPC</option>
@@ -460,11 +494,11 @@ const cancelForm = () => {
     </div>
 
     <div class="space-y-2">
-      <label for="environment" class="text-sm font-medium">Environment</label>
+      <label for="environment" class="text-[13px] font-medium">Environment</label>
       <select
         id="environment"
         v-model="formState.environment"
-        class="flex h-9 w-full rounded-md border border-input bg-transparent px-3 py-1 text-sm shadow-sm transition-colors file:border-0 file:bg-transparent file:text-sm file:font-medium placeholder:text-muted-foreground focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-ring disabled:cursor-not-allowed disabled:opacity-50"
+        class="flex h-8 w-full rounded-md border border-input bg-card px-2.5 py-1 text-[13px] transition-colors outline-none focus-visible:border-ring focus-visible:ring-2 focus-visible:ring-ring/30 disabled:cursor-not-allowed disabled:opacity-50"
       >
         <option :value="ENVIRONMENTS.DEVELOPMENT">
           {{ ENVIRONMENTS.DEVELOPMENT }}
@@ -477,14 +511,14 @@ const cancelForm = () => {
 
     <!-- Linked Production Connection (only for Development environment) -->
     <div v-if="formState.environment === ENVIRONMENTS.DEVELOPMENT" class="space-y-2">
-      <label for="linkedProduction" class="text-sm font-medium">
+      <label for="linkedProduction" class="text-[13px] font-medium">
         Linked Production Connection
         <span class="text-xs text-muted-foreground">(optional)</span>
       </label>
       <select
         id="linkedProduction"
         v-model="formState.linkedProductionId"
-        class="flex h-9 w-full rounded-md border border-input bg-transparent px-3 py-1 text-sm shadow-sm transition-colors file:border-0 file:bg-transparent file:text-sm file:font-medium placeholder:text-muted-foreground focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-ring disabled:cursor-not-allowed disabled:opacity-50"
+        class="flex h-8 w-full rounded-md border border-input bg-card px-2.5 py-1 text-[13px] transition-colors outline-none focus-visible:border-ring focus-visible:ring-2 focus-visible:ring-ring/30 disabled:cursor-not-allowed disabled:opacity-50"
       >
         <option value="">No linked production connection</option>
         <option
@@ -506,41 +540,41 @@ const cancelForm = () => {
           id="isSecure"
           type="checkbox"
           v-model="formState.isSecure"
-          class="h-4 w-4 rounded border-gray-300 text-primary focus:ring-primary"
+          class="h-3.5 w-3.5 rounded border-input accent-primary"
         />
-        <label for="isSecure" class="text-sm font-medium"
+        <label for="isSecure" class="text-[13px] font-medium"
           >Requires Authentication</label
         >
       </div>
     </div>
 
-    <div v-if="formState.isSecure" class="space-y-4 border rounded-md p-4">
+    <div v-if="formState.isSecure" class="space-y-4 rounded-md border border-border bg-muted/40 p-4">
       <div class="flex items-center space-x-2 mb-4">
         <input
           id="useUnifiedAuth"
           type="checkbox"
           v-model="formState.useUnifiedAuth"
-          class="h-4 w-4 rounded border-gray-300 text-primary focus:ring-primary"
+          class="h-3.5 w-3.5 rounded border-input accent-primary"
         />
-        <label for="useUnifiedAuth" class="text-sm font-medium"
+        <label for="useUnifiedAuth" class="text-[13px] font-medium"
           >Use same authentication for both GraphQL and Admin endpoints</label
         >
       </div>
 
       <!-- GraphQL Authentication -->
       <div class="border-b pb-4 mb-4">
-        <h3 class="text-sm font-medium mb-4">
+        <h3 class="text-[13px] font-medium mb-3">
           GraphQL Endpoint Authentication
         </h3>
 
         <div class="space-y-2">
-          <label for="graphql-auth-method" class="text-sm font-medium"
+          <label for="graphql-auth-method" class="text-[13px] font-medium"
             >Authentication Method</label
           >
           <select
             id="graphql-auth-method"
             v-model="formState.credentials.graphql.method"
-            class="flex h-9 w-full rounded-md border border-input bg-transparent px-3 py-1 text-sm shadow-sm transition-colors file:border-0 file:bg-transparent file:text-sm file:font-medium placeholder:text-muted-foreground focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-ring disabled:cursor-not-allowed disabled:opacity-50"
+            class="flex h-8 w-full rounded-md border border-input bg-card px-2.5 py-1 text-[13px] transition-colors outline-none focus-visible:border-ring focus-visible:ring-2 focus-visible:ring-ring/30 disabled:cursor-not-allowed disabled:opacity-50"
             :class="errors.graphqlAuth ? 'border-destructive' : ''"
           >
             <option value="none">No Authentication</option>
@@ -550,7 +584,7 @@ const cancelForm = () => {
             <option value="auth-token">Auth Token (X-Dgraph-AuthToken)</option>
             <option value="dg-auth">DG-Auth (DG-Auth)</option>
           </select>
-          <p v-if="errors.graphqlAuth" class="text-sm text-destructive">
+          <p v-if="errors.graphqlAuth" class="text-xs text-destructive">
             {{ errors.graphqlAuth }}
           </p>
         </div>
@@ -561,7 +595,7 @@ const cancelForm = () => {
           class="space-y-4 mt-4"
         >
           <div class="space-y-2">
-            <label for="graphql-username" class="text-sm font-medium"
+            <label for="graphql-username" class="text-[13px] font-medium"
               >Username</label
             >
             <UiInput
@@ -572,7 +606,7 @@ const cancelForm = () => {
           </div>
 
           <div class="space-y-2">
-            <label for="graphql-password" class="text-sm font-medium"
+            <label for="graphql-password" class="text-[13px] font-medium"
               >Password</label
             >
             <UiInput
@@ -589,7 +623,7 @@ const cancelForm = () => {
           v-if="formState.credentials.graphql.method === 'api-key'"
           class="space-y-2 mt-4"
         >
-          <label for="graphql-apiKey" class="text-sm font-medium"
+          <label for="graphql-apiKey" class="text-[13px] font-medium"
             >API Key</label
           >
           <UiInput
@@ -607,7 +641,7 @@ const cancelForm = () => {
           v-if="formState.credentials.graphql.method === 'token'"
           class="space-y-2 mt-4"
         >
-          <label for="graphql-token" class="text-sm font-medium"
+          <label for="graphql-token" class="text-[13px] font-medium"
             >Access Token</label
           >
           <UiInput
@@ -625,7 +659,7 @@ const cancelForm = () => {
           v-if="formState.credentials.graphql.method === 'auth-token'"
           class="space-y-2 mt-4"
         >
-          <label for="graphql-authToken" class="text-sm font-medium"
+          <label for="graphql-authToken" class="text-[13px] font-medium"
             >Auth Token</label
           >
           <UiInput
@@ -643,7 +677,7 @@ const cancelForm = () => {
           v-if="formState.credentials.graphql.method === 'dg-auth'"
           class="space-y-2 mt-4"
         >
-          <label for="graphql-dgAuth" class="text-sm font-medium"
+          <label for="graphql-dgAuth" class="text-[13px] font-medium"
             >DG-Auth Token</label
           >
           <UiInput
@@ -659,16 +693,16 @@ const cancelForm = () => {
 
       <!-- Admin Authentication (only shown when not using unified auth) -->
       <div v-if="!formState.useUnifiedAuth">
-        <h3 class="text-sm font-medium mb-4">Admin Endpoint Authentication</h3>
+        <h3 class="text-[13px] font-medium mb-3">Admin Endpoint Authentication</h3>
 
         <div class="space-y-2">
-          <label for="admin-auth-method" class="text-sm font-medium"
+          <label for="admin-auth-method" class="text-[13px] font-medium"
             >Authentication Method</label
           >
           <select
             id="admin-auth-method"
             v-model="formState.credentials.admin.method"
-            class="flex h-9 w-full rounded-md border border-input bg-transparent px-3 py-1 text-sm shadow-sm transition-colors file:border-0 file:bg-transparent file:text-sm file:font-medium placeholder:text-muted-foreground focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-ring disabled:cursor-not-allowed disabled:opacity-50"
+            class="flex h-8 w-full rounded-md border border-input bg-card px-2.5 py-1 text-[13px] transition-colors outline-none focus-visible:border-ring focus-visible:ring-2 focus-visible:ring-ring/30 disabled:cursor-not-allowed disabled:opacity-50"
             :class="errors.adminAuth ? 'border-destructive' : ''"
           >
             <option value="none">No Authentication</option>
@@ -678,7 +712,7 @@ const cancelForm = () => {
             <option value="auth-token">Auth Token (X-Dgraph-AuthToken)</option>
             <option value="dg-auth">DG-Auth (DG-Auth)</option>
           </select>
-          <p v-if="errors.adminAuth" class="text-sm text-destructive">
+          <p v-if="errors.adminAuth" class="text-xs text-destructive">
             {{ errors.adminAuth }}
           </p>
         </div>
@@ -689,7 +723,7 @@ const cancelForm = () => {
           class="space-y-4 mt-4"
         >
           <div class="space-y-2">
-            <label for="admin-username" class="text-sm font-medium"
+            <label for="admin-username" class="text-[13px] font-medium"
               >Username</label
             >
             <UiInput
@@ -700,7 +734,7 @@ const cancelForm = () => {
           </div>
 
           <div class="space-y-2">
-            <label for="admin-password" class="text-sm font-medium"
+            <label for="admin-password" class="text-[13px] font-medium"
               >Password</label
             >
             <UiInput
@@ -717,7 +751,7 @@ const cancelForm = () => {
           v-if="formState.credentials.admin.method === 'api-key'"
           class="space-y-2 mt-4"
         >
-          <label for="admin-apiKey" class="text-sm font-medium">API Key</label>
+          <label for="admin-apiKey" class="text-[13px] font-medium">API Key</label>
           <UiInput
             id="admin-apiKey"
             v-model="formState.credentials.admin.apiKey"
@@ -733,7 +767,7 @@ const cancelForm = () => {
           v-if="formState.credentials.admin.method === 'token'"
           class="space-y-2 mt-4"
         >
-          <label for="admin-token" class="text-sm font-medium"
+          <label for="admin-token" class="text-[13px] font-medium"
             >Access Token</label
           >
           <UiInput
@@ -751,7 +785,7 @@ const cancelForm = () => {
           v-if="formState.credentials.admin.method === 'auth-token'"
           class="space-y-2 mt-4"
         >
-          <label for="admin-authToken" class="text-sm font-medium"
+          <label for="admin-authToken" class="text-[13px] font-medium"
             >Auth Token</label
           >
           <UiInput
@@ -769,7 +803,7 @@ const cancelForm = () => {
           v-if="formState.credentials.admin.method === 'dg-auth'"
           class="space-y-2 mt-4"
         >
-          <label for="admin-dgAuth" class="text-sm font-medium"
+          <label for="admin-dgAuth" class="text-[13px] font-medium"
             >DG-Auth Token</label
           >
           <UiInput
@@ -790,184 +824,77 @@ const cancelForm = () => {
       </p>
     </div>
 
-    <!-- Detailed Test Results -->
-    <div v-if="testResult" class="space-y-4">
-      <!-- Overall Status -->
+    <!-- Results of the last connection test -->
+    <div v-if="testResult" class="space-y-3">
       <div
-        class="p-4 rounded-md"
+        class="flex items-center justify-between rounded-md border px-3 py-2.5"
         :class="
           testResult.overallSuccess
-            ? 'bg-green-50 text-green-700'
-            : 'bg-red-50 text-red-700'
+            ? 'border-success-border bg-success-subtle'
+            : 'border-danger-border bg-danger-subtle'
         "
       >
-        <div class="flex items-center justify-between">
-          <span class="font-medium">
-            {{
-              testResult.overallSuccess
-                ? "✅ Connection Successful!"
-                : "❌ Connection Failed"
-            }}
-          </span>
-          <span class="text-sm opacity-75">{{ testResult.totalTime }}ms</span>
-        </div>
+        <span
+          class="flex items-center gap-2 text-[13px] font-medium"
+          :class="testResult.overallSuccess ? 'text-success' : 'text-danger'"
+        >
+          <CheckCircle2 v-if="testResult.overallSuccess" class="h-4 w-4" />
+          <AlertTriangle v-else class="h-4 w-4" />
+          {{
+            testResult.overallSuccess
+              ? "Every endpoint answered"
+              : "One or more endpoints did not answer"
+          }}
+        </span>
+        <span
+          class="font-mono text-[11px]"
+          :class="testResult.overallSuccess ? 'text-success' : 'text-danger'"
+        >
+          {{ testResult.totalTime }}ms
+        </span>
       </div>
 
-      <!-- Individual Check Results -->
-      <div class="grid grid-cols-1 md:grid-cols-3 gap-4">
-        <!-- Admin Health Check -->
-        <div
-          class="p-3 border rounded-md"
-          :class="
-            testResult.adminHealth.success
-              ? 'border-green-200 bg-green-50'
-              : 'border-red-200 bg-red-50'
-          "
-        >
-          <div class="flex items-center justify-between mb-2">
-            <h4
-              class="font-medium text-sm"
-              :class="
-                testResult.adminHealth.success
-                  ? 'text-green-800'
-                  : 'text-red-800'
-              "
-            >
-              {{ testResult.adminHealth.success ? "✅" : "❌" }} Admin Health
-            </h4>
-            <span
-              class="text-xs opacity-75"
-              :class="
-                testResult.adminHealth.success
-                  ? 'text-green-600'
-                  : 'text-red-600'
-              "
-            >
-              {{ testResult.adminHealth.responseTime }}ms
+      <div
+        class="grid grid-cols-1 divide-y divide-border overflow-hidden rounded-md border border-border sm:grid-cols-3 sm:divide-x sm:divide-y-0"
+      >
+        <div v-for="check in testChecks" :key="check.label" class="px-3 py-2.5">
+          <div class="flex items-center justify-between gap-2">
+            <span class="flex min-w-0 items-center gap-1.5 text-[13px] font-medium">
+              <StatusDot :tone="check.result.success ? 'success' : 'danger'" />
+              <span class="truncate">{{ check.label }}</span>
+            </span>
+            <span class="shrink-0 font-mono text-[11px] text-muted-foreground">
+              {{ check.result.responseTime }}ms
             </span>
           </div>
           <p
-            v-if="testResult.adminHealth.error"
-            class="text-xs"
-            :class="
-              testResult.adminHealth.success ? 'text-green-600' : 'text-red-600'
-            "
+            class="mt-1 text-xs leading-5"
+            :class="check.result.success ? 'text-muted-foreground' : 'text-danger'"
           >
-            {{ testResult.adminHealth.error }}
-          </p>
-          <p v-else class="text-xs text-green-600">
-            Admin endpoint is accessible
-          </p>
-        </div>
-
-        <!-- Admin Schema Read -->
-        <div
-          class="p-3 border rounded-md"
-          :class="
-            testResult.adminSchemaRead.success
-              ? 'border-green-200 bg-green-50'
-              : 'border-red-200 bg-red-50'
-          "
-        >
-          <div class="flex items-center justify-between mb-2">
-            <h4
-              class="font-medium text-sm"
-              :class="
-                testResult.adminSchemaRead.success
-                  ? 'text-green-800'
-                  : 'text-red-800'
-              "
-            >
-              {{ testResult.adminSchemaRead.success ? "✅" : "❌" }} Schema Read
-            </h4>
-            <span
-              class="text-xs opacity-75"
-              :class="
-                testResult.adminSchemaRead.success
-                  ? 'text-green-600'
-                  : 'text-red-600'
-              "
-            >
-              {{ testResult.adminSchemaRead.responseTime }}ms
-            </span>
-          </div>
-          <p
-            v-if="testResult.adminSchemaRead.error"
-            class="text-xs"
-            :class="
-              testResult.adminSchemaRead.success
-                ? 'text-green-600'
-                : 'text-red-600'
-            "
-          >
-            {{ testResult.adminSchemaRead.error }}
-          </p>
-          <p v-else class="text-xs text-green-600">
-            Schema can be read from admin endpoint
-          </p>
-        </div>
-
-        <!-- Client Introspection -->
-        <div
-          class="p-3 border rounded-md"
-          :class="
-            testResult.clientIntrospection.success
-              ? 'border-green-200 bg-green-50'
-              : 'border-red-200 bg-red-50'
-          "
-        >
-          <div class="flex items-center justify-between mb-2">
-            <h4
-              class="font-medium text-sm"
-              :class="
-                testResult.clientIntrospection.success
-                  ? 'text-green-800'
-                  : 'text-red-800'
-              "
-            >
-              {{ testResult.clientIntrospection.success ? "✅" : "❌" }} Client
-              Query
-            </h4>
-            <span
-              class="text-xs opacity-75"
-              :class="
-                testResult.clientIntrospection.success
-                  ? 'text-green-600'
-                  : 'text-red-600'
-              "
-            >
-              {{ testResult.clientIntrospection.responseTime }}ms
-            </span>
-          </div>
-          <p
-            v-if="testResult.clientIntrospection.error"
-            class="text-xs"
-            :class="
-              testResult.clientIntrospection.success
-                ? 'text-green-600'
-                : 'text-red-600'
-            "
-          >
-            {{ testResult.clientIntrospection.error }}
-          </p>
-          <p v-else class="text-xs text-green-600">
-            Client introspection queries work
+            {{ check.result.error || check.description }}
           </p>
         </div>
       </div>
     </div>
 
-    <div class="flex justify-end space-x-2">
-      <UiButton variant="outline" @click="cancelForm" :disabled="isLoading">
+    <div
+      v-if="saveError"
+      class="rounded-md border border-danger-border bg-danger-subtle px-3 py-2.5 text-[13px] text-danger"
+    >
+      {{ saveError }}
+    </div>
+
+    <div class="flex flex-wrap justify-end gap-2 border-t border-border pt-4">
+      <UiButton variant="outline" size="sm" :disabled="isLoading" @click="cancelForm">
         Cancel
       </UiButton>
 
-      <UiButton variant="outline" @click="testConnection" :disabled="isLoading">
-        Test Connection
+      <UiButton variant="outline" size="sm" :disabled="isLoading" @click="testConnection">
+        {{ isLoading ? "Testing…" : "Test connection" }}
       </UiButton>
 
-      <UiButton @click="saveConnection" :disabled="isLoading">
-        {{ props.connection ? "Update" : "Save" }} Connection
+      <UiButton size="sm" :disabled="isLoading" @click="saveConnection">
+        {{ props.connection ? "Save changes" : "Add connection" }}
       </UiButton>
     </div>
   </div>

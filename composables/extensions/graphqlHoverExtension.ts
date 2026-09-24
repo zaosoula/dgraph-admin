@@ -40,18 +40,18 @@ export function createGraphQLHoverExtension(
 
 function createTooltipContent(typeDef: TypeDefinition): string {
   let content = `
-    <div class="p-3 bg-white border border-gray-200 rounded-lg shadow-lg max-w-md">
+    <div class="max-w-md rounded-lg border border-border bg-popover p-3 text-popover-foreground shadow-lg">
       <div class="flex items-center gap-2 mb-2">
-        <span class="px-2 py-1 text-xs font-medium rounded ${getKindBadgeClass(typeDef.kind)}">
-          ${typeDef.kind}
+        <span class="rounded border px-1.5 py-0.5 text-[11px] font-medium ${getKindBadgeClass(typeDef.kind)}">
+          ${escapeHtml(typeDef.kind)}
         </span>
-        <span class="font-semibold text-gray-900">${typeDef.name}</span>
+        <span class="font-mono font-semibold">${escapeHtml(typeDef.name)}</span>
       </div>
   `
 
   if (typeDef.description) {
     content += `
-      <div class="text-sm text-gray-600 mb-3">
+      <div class="mb-3 text-xs leading-5 text-muted-foreground">
         ${escapeHtml(typeDef.description)}
       </div>
     `
@@ -59,8 +59,8 @@ function createTooltipContent(typeDef: TypeDefinition): string {
 
   if (typeDef.fields && typeDef.fields.length > 0) {
     content += `
-      <div class="border-t pt-2">
-        <div class="text-xs font-medium text-gray-500 mb-2">
+      <div class="border-t border-border pt-2">
+        <div class="mb-2 text-[11px] font-medium text-muted-foreground">
           ${typeDef.kind === 'Enum' ? 'Values' : 'Fields'}:
         </div>
         <div class="space-y-1 max-h-32 overflow-y-auto">
@@ -70,16 +70,16 @@ function createTooltipContent(typeDef: TypeDefinition): string {
     for (const field of fieldsToShow) {
       content += `
         <div class="flex items-center gap-2 text-xs">
-          <span class="font-mono text-blue-600">${field.name}</span>
-          ${typeDef.kind !== 'Enum' ? `<span class="text-gray-400">:</span>
-          <span class="font-mono text-green-600">${escapeHtml(field.type)}</span>` : ''}
+          <span class="font-mono text-cm-property">${escapeHtml(field.name)}</span>
+          ${typeDef.kind !== 'Enum' ? `<span class="text-muted-foreground">:</span>
+          <span class="font-mono text-cm-type">${escapeHtml(field.type)}</span>` : ''}
         </div>
       `
     }
 
     if (typeDef.fields.length > 8) {
       content += `
-        <div class="text-xs text-gray-400 italic">
+        <div class="text-[11px] italic text-muted-foreground">
           ... and ${typeDef.fields.length - 8} more
         </div>
       `
@@ -92,7 +92,7 @@ function createTooltipContent(typeDef: TypeDefinition): string {
   }
 
   content += `
-      <div class="text-xs text-gray-400 mt-2 pt-2 border-t">
+      <div class="mt-2 border-t border-border pt-2 font-mono text-[11px] text-muted-foreground">
         Line ${typeDef.location.line}, Column ${typeDef.location.column}
       </div>
     </div>
@@ -102,21 +102,22 @@ function createTooltipContent(typeDef: TypeDefinition): string {
 }
 
 function getKindBadgeClass(kind: string): string {
+  // The badge only distinguishes kinds; every value comes from the design tokens
+  // so the tooltip follows the active theme like the rest of the app.
   switch (kind) {
     case 'ObjectType':
-      return 'bg-blue-100 text-blue-800'
+      return 'border-info-border bg-info-subtle text-info'
     case 'Interface':
-      return 'bg-purple-100 text-purple-800'
+      return 'border-border bg-muted text-cm-keyword'
     case 'Enum':
-      return 'bg-green-100 text-green-800'
+      return 'border-success-border bg-success-subtle text-success'
     case 'Union':
-      return 'bg-orange-100 text-orange-800'
+      return 'border-warning-border bg-warning-subtle text-warning'
     case 'Input':
-      return 'bg-yellow-100 text-yellow-800'
+      return 'border-border bg-muted text-cm-meta'
     case 'Scalar':
-      return 'bg-gray-100 text-gray-800'
     default:
-      return 'bg-gray-100 text-gray-800'
+      return 'border-border bg-muted text-muted-foreground'
   }
 }
 
