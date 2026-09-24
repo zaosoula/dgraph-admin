@@ -59,9 +59,7 @@ const confirmExport = () => {
 
   // Surface a refusal rather than closing the dialog as though it worked.
   if (!result.ok) {
-    exportError.value = result.reason === 'locked'
-      ? 'Credentials are locked. Unlock them in Settings before exporting.'
-      : 'Export failed.'
+    exportError.value = 'Export failed.'
     return
   }
 

@@ -2,7 +2,6 @@
 import { ref, reactive, computed, onMounted } from "vue";
 import { useConnectionsStore } from "@/stores/connections";
 import { useCredentialStorage } from "@/composables/useCredentialStorage";
-import { isVaultLockedError } from "@/utils/encryption";
 import { useDgraphClient } from "@/composables/useDgraphClient";
 import { AlertTriangle, CheckCircle2 } from "lucide-vue-next";
 import {
@@ -11,7 +10,6 @@ import {
   type ConnectionType,
   type AuthMethod,
   type ConnectionTestResult,
-  type ConnectionCredentials,
   ENVIRONMENTS,
 } from "@/types/connection";
 
@@ -29,7 +27,6 @@ const credentialStorage = useCredentialStorage();
 const dgraphClient = useDgraphClient();
 
 const isLoading = ref(false);
-const credentialsLocked = ref(false);
 const testResult = ref<ConnectionTestResult | null>(null);
 const saveError = ref<string | null>(null);
 
@@ -105,19 +102,10 @@ const applyStoredCredentials = (
 // Load credentials when editing a connection
 onMounted(() => {
   if (props.connection) {
-    // Load credentials from storage if editing an existing connection. A locked
-    // vault must not blank the form or, worse, let the user save over
-    // credentials that were never loaded.
-    let storedCredentials: ConnectionCredentials | null = null;
-    try {
-      storedCredentials = credentialStorage.getCredentials(props.connection.id);
-    } catch (error) {
-      if (!isVaultLockedError(error)) throw error;
-      credentialsLocked.value = true;
-      saveError.value =
-        "Credentials are locked. Unlock them in Settings before editing this connection.";
-      return;
-    }
+    // Load credentials from storage if editing an existing connection
+    const storedCredentials = credentialStorage.getCredentials(
+      props.connection.id
+    );
 
     if (storedCredentials) {
       if (storedCredentials.graphql) {
@@ -405,9 +393,7 @@ const saveConnection = async () => {
     emit("saved", connectionId);
   } catch (error) {
     console.error("Failed to save connection:", error);
-    saveError.value = isVaultLockedError(error)
-      ? "Credentials are locked. Unlock them in Settings before saving."
-      : `Error saving connection: ${error instanceof Error ? error.message : String(error)}`;
+    saveError.value = `Error saving connection: ${error instanceof Error ? error.message : String(error)}`;
   } finally {
     isLoading.value = false;
   }
@@ -903,11 +889,11 @@ const cancelForm = () => {
         Cancel
       </UiButton>
 
-      <UiButton variant="outline" size="sm" :disabled="isLoading || credentialsLocked" @click="testConnection">
+      <UiButton variant="outline" size="sm" :disabled="isLoading" @click="testConnection">
         {{ isLoading ? "Testing…" : "Test connection" }}
       </UiButton>
 
-      <UiButton size="sm" :disabled="isLoading || credentialsLocked" @click="saveConnection">
+      <UiButton size="sm" :disabled="isLoading" @click="saveConnection">
         {{ props.connection ? "Save changes" : "Add connection" }}
       </UiButton>
     </div>

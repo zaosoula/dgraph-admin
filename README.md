@@ -87,10 +87,6 @@ What this means in practice:
 
 - Prefer **session-only storage** (Settings &rarr; Credential Storage, persistence off) for
   production credentials. They then live in `sessionStorage` for the tab only.
-- Optionally set an **encryption passphrase** (Settings &rarr; Credential Storage). The key
-  is then derived from that passphrase with PBKDF2 and held in memory for the session only,
-  so nothing written to disk is enough to recover the credentials. You are asked for the
-  passphrase once per browser session, and there is no recovery if you forget it.
 - Prefer scoped, short-lived tokens over long-lived admin credentials wherever your Dgraph
   deployment allows it.
 

@@ -2,7 +2,7 @@
 import { computed, ref } from 'vue'
 import { useCredentialStorage } from '@/composables/useCredentialStorage'
 import { useToast } from '@/components/ui/toast'
-import { ShieldCheck, ShieldAlert, Lock } from 'lucide-vue-next'
+import { ShieldAlert } from 'lucide-vue-next'
 
 useHead({
   title: 'Dgraph Admin - Settings',
@@ -17,136 +17,20 @@ const toast = useToast()
 // UI state
 const showClearConfirm = ref(false)
 
-// Passphrase state
-const passphrase = ref('')
-const passphraseConfirm = ref('')
-const passphraseError = ref('')
-const passphraseNotice = ref('')
-const isDerivingKey = ref(false)
-const showRemovePassphraseConfirm = ref(false)
-
-const hasPassphrase = computed(() => credentialStorage.hasPassphrase.value)
-const isUnlocked = computed(() => credentialStorage.isUnlocked.value)
 const isPersistent = computed(() => credentialStorage.isPersistent.value)
 
 // How protected the stored credentials actually are, said plainly
-const protectionLevel = computed(() => {
-  if (hasPassphrase.value) {
-    return {
-      tone: isUnlocked.value ? ('success' as const) : ('warning' as const),
-      icon: isUnlocked.value ? ShieldCheck : Lock,
-      title: isUnlocked.value
-        ? 'Encrypted with your passphrase, unlocked for this session'
-        : 'Encrypted with your passphrase, locked',
-      body: isUnlocked.value
-        ? 'The key lives in memory only. Nothing on disk can rebuild it.'
-        : 'Enter your passphrase to use the stored credentials again.'
-    }
-  }
-
-  return {
-    tone: 'warning' as const,
-    icon: ShieldAlert,
-    title: 'Obfuscated, not encrypted',
-    body: 'The key sits in this browser’s storage next to the data, so any script on this origin can recover the credentials. Set a passphrase, or keep storage session-only.'
-  }
-})
+const protectionLevel = computed(() => ({
+  icon: ShieldAlert,
+  title: 'Obfuscated, not encrypted',
+  body: isPersistent.value
+    ? 'The key sits in this browser\u2019s storage next to the data, so any script on this origin can recover the credentials. Keep storage session-only for production instances.'
+    : 'Credentials are kept for this browser session only and the key sits beside them, so any script on this origin can recover them while the tab is open.'
+}))
 
 // Toggle persistence
 const togglePersistence = () => {
   credentialStorage.setPersistence(!credentialStorage.isPersistent.value)
-}
-
-const resetPassphraseForm = () => {
-  passphrase.value = ''
-  passphraseConfirm.value = ''
-  passphraseError.value = ''
-}
-
-// Key derivation is deliberately slow; let the DOM paint the pending state first
-const runAfterPaint = (work: () => void) => {
-  isDerivingKey.value = true
-  setTimeout(() => {
-    try {
-      work()
-    } finally {
-      isDerivingKey.value = false
-    }
-  }, 0)
-}
-
-// Set a new passphrase
-const setPassphrase = () => {
-  passphraseError.value = ''
-  passphraseNotice.value = ''
-
-  if (passphrase.value.length < 8) {
-    passphraseError.value = 'Passphrase must be at least 8 characters'
-    return
-  }
-
-  if (passphrase.value !== passphraseConfirm.value) {
-    passphraseError.value = 'Passphrases do not match'
-    return
-  }
-
-  runAfterPaint(() => {
-    const success = credentialStorage.enablePassphrase(passphrase.value)
-
-    if (success) {
-      resetPassphraseForm()
-      passphraseNotice.value = 'Passphrase set. You will be asked for it once per browser session.'
-      toast.success('Passphrase set', 'Stored credentials are now encrypted with a key held in memory only.')
-    } else {
-      passphraseError.value = 'Failed to set the passphrase. Your credentials were left unchanged.'
-    }
-  })
-}
-
-// Unlock an existing passphrase for this session
-const unlockPassphrase = () => {
-  passphraseError.value = ''
-  passphraseNotice.value = ''
-
-  if (!passphrase.value) {
-    passphraseError.value = 'Enter your passphrase'
-    return
-  }
-
-  runAfterPaint(() => {
-    const success = credentialStorage.unlockPassphrase(passphrase.value)
-
-    if (success) {
-      resetPassphraseForm()
-      passphraseNotice.value = 'Credentials unlocked for this session.'
-      toast.success('Credentials unlocked')
-    } else {
-      passphraseError.value = 'That passphrase does not match the one used to store these credentials.'
-    }
-  })
-}
-
-// Lock without removing the passphrase
-const lockCredentials = () => {
-  credentialStorage.lockCredentials()
-  passphraseNotice.value = 'Credentials locked. Enter your passphrase to use them again.'
-  toast.info('Credentials locked')
-}
-
-// Remove the passphrase and fall back to the default obfuscation
-const removePassphrase = () => {
-  passphraseError.value = ''
-  passphraseNotice.value = ''
-  showRemovePassphraseConfirm.value = false
-
-  const success = credentialStorage.disablePassphrase()
-
-  if (success) {
-    passphraseNotice.value = 'Passphrase removed. Credentials are stored with the default obfuscation again.'
-    toast.warning('Passphrase removed', 'Credentials are obfuscated with a key kept in this browser again.')
-  } else {
-    passphraseError.value = 'Unlock your credentials first, otherwise removing the passphrase would make them unreadable.'
-  }
 }
 
 // Clear all credentials
@@ -159,9 +43,9 @@ const clearAllCredentials = () => {
   showClearConfirm.value = false
 
   if (success) {
-    toast.success('All credentials cleared', 'Connections are kept; you will need to re-enter their secrets.')
+    toast.success('Credentials cleared', 'Every stored credential was removed from this browser.')
   } else {
-    toast.danger('Could not clear credentials', 'Nothing was removed.')
+    toast.danger('Could not clear credentials', 'Check your browser storage settings and try again.')
   }
 }
 </script>
@@ -179,23 +63,14 @@ const clearAllCredentials = () => {
       <div class="space-y-5">
         <!-- Current protection -->
         <section
-          class="flex items-start gap-3 rounded-lg border px-4 py-3.5"
-          :class="
-            protectionLevel.tone === 'success'
-              ? 'border-success-border bg-success-subtle'
-              : 'border-warning-border bg-warning-subtle'
-          "
+          class="flex items-start gap-3 rounded-lg border border-warning-border bg-warning-subtle px-4 py-3.5"
         >
           <component
             :is="protectionLevel.icon"
-            class="mt-0.5 h-4 w-4 shrink-0"
-            :class="protectionLevel.tone === 'success' ? 'text-success' : 'text-warning'"
+            class="mt-0.5 h-4 w-4 shrink-0 text-warning"
           />
           <div class="min-w-0">
-            <p
-              class="text-[13px] font-medium"
-              :class="protectionLevel.tone === 'success' ? 'text-success' : 'text-warning'"
-            >
+            <p class="text-[13px] font-medium text-warning">
               {{ protectionLevel.title }}
             </p>
             <p class="mt-0.5 max-w-prose text-xs leading-5 text-foreground/80">
@@ -238,69 +113,6 @@ const clearAllCredentials = () => {
                 :class="isPersistent ? 'translate-x-[1.125rem]' : 'translate-x-0.5'"
               />
             </button>
-          </div>
-
-          <!-- Passphrase -->
-          <div class="space-y-3 border-t border-border px-4 py-3.5">
-            <div>
-              <h3 class="text-[13px] font-medium">Encryption passphrase</h3>
-              <p class="mt-0.5 max-w-prose text-xs leading-5 text-muted-foreground">
-                Optional. Derives the encryption key from a passphrase you type and keeps
-                it in memory for the session only, so nothing written to disk can rebuild
-                it. You are asked for it once per browser session.
-              </p>
-            </div>
-
-            <div v-if="hasPassphrase && isUnlocked" class="flex flex-wrap gap-2">
-              <UiButton variant="outline" size="sm" @click="lockCredentials">
-                Lock now
-              </UiButton>
-              <UiButton
-                variant="outline"
-                size="sm"
-                @click="showRemovePassphraseConfirm = true"
-              >
-                Remove passphrase
-              </UiButton>
-            </div>
-
-            <div v-else class="max-w-sm space-y-2">
-              <UiInput
-                v-model="passphrase"
-                type="password"
-                autocomplete="off"
-                :aria-invalid="!!passphraseError"
-                :placeholder="hasPassphrase ? 'Passphrase' : 'New passphrase (at least 8 characters)'"
-              />
-
-              <UiInput
-                v-if="!hasPassphrase"
-                v-model="passphraseConfirm"
-                type="password"
-                autocomplete="off"
-                placeholder="Confirm passphrase"
-              />
-
-              <UiButton
-                size="sm"
-                :disabled="isDerivingKey"
-                @click="hasPassphrase ? unlockPassphrase() : setPassphrase()"
-              >
-                {{ isDerivingKey ? 'Working…' : hasPassphrase ? 'Unlock' : 'Set passphrase' }}
-              </UiButton>
-
-              <p v-if="!hasPassphrase" class="text-xs leading-5 text-muted-foreground">
-                There is no recovery if you forget it — you would have to clear the stored
-                credentials and enter them again.
-              </p>
-            </div>
-
-            <p v-if="passphraseError" class="text-xs leading-5 text-danger">
-              {{ passphraseError }}
-            </p>
-            <p v-else-if="passphraseNotice" class="text-xs leading-5 text-muted-foreground">
-              {{ passphraseNotice }}
-            </p>
           </div>
 
           <!-- Clear -->
@@ -349,9 +161,9 @@ const clearAllCredentials = () => {
               configure. There is no server and no account.
             </p>
             <p>
-              Stored credentials are obfuscated, not securely encrypted, unless you set an
-              encryption passphrase: without one the key lives in this browser’s storage
-              beside the data.
+              Stored credentials are obfuscated, not securely encrypted: the key lives in
+              this browser’s storage beside the data, so any script running on this origin
+              can recover them. Prefer session-only storage for production instances.
             </p>
             <p>
               Exporting connections writes a plaintext JSON file. Credentials are left out
@@ -385,26 +197,5 @@ const clearAllCredentials = () => {
       </UiDialogContent>
     </UiDialog>
 
-    <!-- Remove passphrase confirmation -->
-    <UiDialog v-model:open="showRemovePassphraseConfirm">
-      <UiDialogContent class="max-w-md">
-        <UiDialogHeader>
-          <UiDialogTitle>Remove the encryption passphrase?</UiDialogTitle>
-          <UiDialogDescription>
-            Stored credentials are re-encrypted with a key kept in this browser’s storage,
-            so anything that can read the storage can read them again.
-          </UiDialogDescription>
-        </UiDialogHeader>
-
-        <UiDialogFooter>
-          <UiButton variant="outline" size="sm" @click="showRemovePassphraseConfirm = false">
-            Cancel
-          </UiButton>
-          <UiButton variant="destructive" size="sm" @click="removePassphrase">
-            Remove passphrase
-          </UiButton>
-        </UiDialogFooter>
-      </UiDialogContent>
-    </UiDialog>
   </div>
 </template>

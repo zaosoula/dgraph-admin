@@ -183,7 +183,7 @@ const shortcuts = [
     to: '/settings',
     icon: Settings,
     label: 'Settings',
-    description: 'Credential storage and passphrase'
+    description: 'Credential storage and app preferences'
   }
 ]
 </script>

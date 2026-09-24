@@ -1,6 +1,5 @@
 import { useConnectionsStore } from '@/stores/connections'
 import { useCredentialStorage } from '@/composables/useCredentialStorage'
-import { isVaultLockedError } from '@/utils/encryption'
 import type { Connection, ConnectionCredentials, AuthMethod, AuthCredentials } from '@/types/connection'
 
 export type ConnectionExport = {
@@ -31,7 +30,7 @@ export type ConnectionExportOptions = {
  */
 export type ConnectionExportResult =
   | { ok: true, includedCredentials: boolean, count: number }
-  | { ok: false, reason: 'locked' | 'not-found' | 'empty' }
+  | { ok: false, reason: 'not-found' | 'empty' }
 
 export type ConnectionImportResult = {
   success: boolean
@@ -81,13 +80,7 @@ export const useConnectionExportImport = () => {
 
     const includeCredentials = options.includeCredentials === true
 
-    let copy: Connection
-    try {
-      copy = buildConnectionCopy(connection, includeCredentials)
-    } catch (error) {
-      if (isVaultLockedError(error)) return { ok: false, reason: 'locked' }
-      throw error
-    }
+    const copy = buildConnectionCopy(connection, includeCredentials)
 
     const exportData: ConnectionExport = {
       version: '1.1',
@@ -114,13 +107,7 @@ export const useConnectionExportImport = () => {
 
     const includeCredentials = options.includeCredentials === true
 
-    let copies: Connection[]
-    try {
-      copies = connectionsStore.connections.map(connection => buildConnectionCopy(connection, includeCredentials))
-    } catch (error) {
-      if (isVaultLockedError(error)) return { ok: false, reason: 'locked' }
-      throw error
-    }
+    const copies = connectionsStore.connections.map(connection => buildConnectionCopy(connection, includeCredentials))
 
     const exportData: ConnectionExport = {
       version: '1.1',
