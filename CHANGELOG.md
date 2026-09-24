@@ -1,6 +1,24 @@
 # Changelog
 
 
+## v0.0.5
+
+[compare changes](https://github.com/zaosoula/dgraph-admin/compare/v0.0.4...v0.0.5)
+
+### 🩹 Fixes
+
+- **credentials:** Refuse rather than fall back when locked ([daa11e1](https://github.com/zaosoula/dgraph-admin/commit/daa11e1))
+- **credentials:** Repair regressions from the previous fix ([692e3bc](https://github.com/zaosoula/dgraph-admin/commit/692e3bc))
+
+### 🏡 Chore
+
+- Fix audit findings and redesign UI ([e0699db](https://github.com/zaosoula/dgraph-admin/commit/e0699db))
+- Pin supported architectures and clear all lint errors ([5d7759f](https://github.com/zaosoula/dgraph-admin/commit/5d7759f))
+
+### ❤️ Contributors
+
+- Zao Soula <contact@zaosoula.fr>
+
 ## v0.0.4
 
 [compare changes](https://github.com/zaosoula/dgraph-admin/compare/v0.0.3...v0.0.4)
