@@ -1,5 +1,6 @@
 import { useConnectionsStore } from '@/stores/connections'
 import { useCredentialStorage } from '@/composables/useCredentialStorage'
+import { isVaultLockedError } from '@/utils/encryption'
 import type { Connection, ConnectionCredentials, AuthMethod, AuthCredentials } from '@/types/connection'
 
 export type ConnectionExport = {
@@ -20,6 +21,17 @@ export type ConnectionExportOptions = {
    */
   includeCredentials?: boolean
 }
+
+/**
+ * Outcome of an export.
+ *
+ * `includedCredentials` reports what actually landed in the file rather than
+ * what was asked for, so the UI cannot warn about plaintext secrets in a file
+ * that has none — or stay silent about a file that does.
+ */
+export type ConnectionExportResult =
+  | { ok: true, includedCredentials: boolean, count: number }
+  | { ok: false, reason: 'locked' | 'not-found' | 'empty' }
 
 export type ConnectionImportResult = {
   success: boolean
@@ -63,49 +75,58 @@ export const useConnectionExportImport = () => {
   /**
    * Export a single connection to a JSON file
    */
-  const exportConnection = (connectionId: string, options: ConnectionExportOptions = {}): boolean => {
+  const exportConnection = (connectionId: string, options: ConnectionExportOptions = {}): ConnectionExportResult => {
     const connection = connectionsStore.connections.find(conn => conn.id === connectionId)
-    if (!connection) return false
+    if (!connection) return { ok: false, reason: 'not-found' }
 
     const includeCredentials = options.includeCredentials === true
 
-    // Create export object
-    const exportData: ConnectionExport = {
-      version: '1.1',
-      connections: [buildConnectionCopy(connection, includeCredentials)],
-      exportedAt: new Date().toISOString(),
-      includesCredentials: includeCredentials
+    let copy: Connection
+    try {
+      copy = buildConnectionCopy(connection, includeCredentials)
+    } catch (error) {
+      if (isVaultLockedError(error)) return { ok: false, reason: 'locked' }
+      throw error
     }
 
-    // Convert to JSON and create download
+    const exportData: ConnectionExport = {
+      version: '1.1',
+      connections: [copy],
+      includesCredentials: includeCredentials,
+      exportedAt: new Date().toISOString()
+    }
+
     downloadJson(exportData, `dgraph-connection-${connection.name.replace(/\s+/g, '-').toLowerCase()}.json`)
-    return true
+    return { ok: true, includedCredentials: includeCredentials, count: 1 }
   }
 
   /**
    * Export all connections to a JSON file
    */
-  const exportAllConnections = (options: ConnectionExportOptions = {}): boolean => {
-    if (connectionsStore.connections.length === 0) return false
+  const exportAllConnections = (options: ConnectionExportOptions = {}): ConnectionExportResult => {
+    if (connectionsStore.connections.length === 0) return { ok: false, reason: 'empty' }
 
     const includeCredentials = options.includeCredentials === true
 
-    // Create export object
-    const exportData: ConnectionExport = {
-      version: '1.1',
-      connections: connectionsStore.connections.map(connection => buildConnectionCopy(connection, includeCredentials)),
-      exportedAt: new Date().toISOString(),
-      includesCredentials: includeCredentials
+    let copies: Connection[]
+    try {
+      copies = connectionsStore.connections.map(connection => buildConnectionCopy(connection, includeCredentials))
+    } catch (error) {
+      if (isVaultLockedError(error)) return { ok: false, reason: 'locked' }
+      throw error
     }
 
-    // Convert to JSON and create download
+    const exportData: ConnectionExport = {
+      version: '1.1',
+      connections: copies,
+      includesCredentials: includeCredentials,
+      exportedAt: new Date().toISOString()
+    }
+
     downloadJson(exportData, 'dgraph-connections.json')
-    return true
+    return { ok: true, includedCredentials: includeCredentials, count: copies.length }
   }
 
-  /**
-   * Convert a credential block from the pre-separate-auth format if needed.
-   */
   const normalizeCredentials = (credentials: ConnectionCredentials): ConnectionCredentials => {
     if (credentials.graphql || credentials.admin) {
       return credentials
@@ -152,11 +173,6 @@ export const useConnectionExportImport = () => {
     }
   }
 
-  /**
-   * True when a credential block actually carries something worth storing.
-   * `isSecure` is deliberately not consulted: an export can carry credentials
-   * with `isSecure: false` and dropping them silently loses data.
-   */
   const carriesSecrets = (credentials: ConnectionCredentials): boolean => {
     const authCarriesSecrets = (auth?: AuthCredentials): boolean =>
       !!auth && (

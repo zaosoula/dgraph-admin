@@ -31,6 +31,7 @@ const testConnection = async (id: string) => {
 
 // Export connection
 const exportTargetId = ref<string | null>(null)
+const exportError = ref<string | null>(null)
 const exportIncludeCredentials = ref(false)
 
 const exportTarget = computed(() => {
@@ -51,14 +52,28 @@ const cancelExport = () => {
 
 const confirmExport = () => {
   if (!exportTargetId.value) return
-  exportConnection(exportTargetId.value, {
+
+  const result = exportConnection(exportTargetId.value, {
     includeCredentials: exportIncludeCredentials.value
   })
+
+  // Surface a refusal rather than closing the dialog as though it worked.
+  if (!result.ok) {
+    exportError.value = result.reason === 'locked'
+      ? 'Credentials are locked. Unlock them in Settings before exporting.'
+      : 'Export failed.'
+    return
+  }
+
+  exportError.value = null
   exportTargetId.value = null
 }
 
 const handleExportOpenChange = (open: boolean) => {
-  if (!open) cancelExport()
+  if (!open) {
+    exportError.value = null
+    cancelExport()
+  }
 }
 
 // Format date
@@ -241,6 +256,13 @@ const endpointChecks = (id: string) => {
             you would keep a password, and delete it once you have imported it.
           </p>
         </div>
+
+        <p
+          v-if="exportError"
+          class="rounded-md border border-danger-border bg-danger-subtle p-3 text-xs leading-5 text-danger"
+        >
+          {{ exportError }}
+        </p>
 
         <UiDialogFooter>
           <UiButton variant="outline" size="sm" @click="cancelExport">Cancel</UiButton>

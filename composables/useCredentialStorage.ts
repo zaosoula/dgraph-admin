@@ -1,5 +1,8 @@
 import { ref } from 'vue'
 import {
+  removePassphraseAfter,
+  encryptObjectWithFallbackKey,
+  isVaultLockedError,
   encryptObject,
   decryptObject,
   isPassphraseConfigured,
@@ -73,6 +76,8 @@ export const useCredentialStorage = () => {
       
       return true
     } catch (error) {
+      if (isVaultLockedError(error)) throw error
+
       console.error('Failed to save credentials:', error)
       return false
     }
@@ -101,11 +106,16 @@ export const useCredentialStorage = () => {
       
       return null
     } catch (error) {
+      // A locked vault is not the same as "this connection has no credentials".
+      // Callers must be able to tell them apart, or they will happily build an
+      // unauthenticated client and blame the server for the 401.
+      if (isVaultLockedError(error)) throw error
+
       console.error('Failed to get credentials:', error)
       return null
     }
   }
-  
+
   // Delete credentials for a connection
   const deleteCredentials = (connectionId: string) => {
     try {
@@ -130,6 +140,8 @@ export const useCredentialStorage = () => {
       
       return true
     } catch (error) {
+      if (isVaultLockedError(error)) throw error
+
       console.error('Failed to delete credentials:', error)
       return false
     }
@@ -155,8 +167,10 @@ export const useCredentialStorage = () => {
       try {
         return decryptObject<Record<string, ConnectionCredentials>>(raw)
       } catch (error) {
+        // Re-thrown: treating an unreadable bundle as "nothing to migrate"
+        // would switch the key while leaving ciphertext under the old one.
         console.error('Failed to read credentials for re-encryption:', error)
-        return null
+        throw error
       }
     }
 
@@ -166,12 +180,17 @@ export const useCredentialStorage = () => {
     }
   }
 
-  const writeAllBundles = (bundles: { persistent: Record<string, ConnectionCredentials> | null, session: Record<string, ConnectionCredentials> | null }) => {
+  const writeAllBundles = (
+    bundles: { persistent: Record<string, ConnectionCredentials> | null, session: Record<string, ConnectionCredentials> | null },
+    { useFallbackKey = false }: { useFallbackKey?: boolean } = {}
+  ) => {
+    const seal = useFallbackKey ? encryptObjectWithFallbackKey : encryptObject
+
     if (bundles.persistent) {
-      localStorage.setItem(storageKey, encryptObject(bundles.persistent))
+      localStorage.setItem(storageKey, seal(bundles.persistent))
     }
     if (bundles.session) {
-      sessionStorage.setItem(sessionStorageKey, encryptObject(bundles.session))
+      sessionStorage.setItem(sessionStorageKey, seal(bundles.session))
     }
   }
 
@@ -218,9 +237,10 @@ export const useCredentialStorage = () => {
     try {
       const bundles = readAllBundles()
 
-      removePassphrase()
+      // Write under the fallback key first; the salt and verifier are dropped
+      // only once that has succeeded.
+      removePassphraseAfter(() => writeAllBundles(bundles, { useFallbackKey: true }))
 
-      writeAllBundles(bundles)
       hasPassphrase.value = false
       isUnlocked.value = false
       return true

@@ -13,6 +13,9 @@ export const createClientForConnection = (connection: Connection): DgraphClient 
   const { getCredentials } = useCredentialStorage()
 
   if (connection.isSecure) {
+    // Deliberately not caught: a locked vault must surface as "unlock to
+    // continue", never as a client that sends the connection's empty
+    // placeholder credentials and fails with an opaque auth error.
     const storedCredentials = getCredentials(connection.id)
 
     if (storedCredentials) {
@@ -192,6 +195,8 @@ export const useDgraphClient = () => {
       const connectionId = connectionsStore.activeConnectionId
       import('@/composables/useSchemaSyncStatus').then(({ useSchemaSyncStatus }) => {
         useSchemaSyncStatus().refreshForConnection(connectionId)
+      }).catch((error) => {
+        console.error('Failed to refresh schema sync status after write:', error)
       })
     }
 

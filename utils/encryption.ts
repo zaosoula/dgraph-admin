@@ -29,6 +29,25 @@ const VERIFIER_PLAINTEXT = 'dgraph-admin-passphrase-verifier'
 // Derived passphrase key. Memory only — never persisted.
 let sessionKey: string | null = null
 
+/**
+ * Thrown when a passphrase is configured but no key is held for this session.
+ *
+ * The derived key is memory-only by design, so this is the normal state after
+ * every page load. It must be a refusal rather than a fallback: quietly
+ * encrypting under the legacy key would write data the passphrase can never
+ * recover, and quietly decrypting under it yields a failure that callers
+ * cannot tell apart from "no credentials stored".
+ */
+export class VaultLockedError extends Error {
+  constructor() {
+    super('Credentials are locked. Unlock with your passphrase to continue.')
+    this.name = 'VaultLockedError'
+  }
+}
+
+export const isVaultLockedError = (error: unknown): error is VaultLockedError =>
+  error instanceof VaultLockedError
+
 // Generate (or reuse) the random key kept beside the ciphertext.
 const getFallbackKey = (): string => {
   const storedKey = localStorage.getItem(LEGACY_KEY_STORAGE_KEY)
@@ -65,9 +84,20 @@ const deriveKey = (passphrase: string): string => {
   }).toString(CryptoJS.enc.Hex)
 }
 
-// The key currently in use for encrypt/decrypt.
+/**
+ * The key currently in use for encrypt/decrypt.
+ *
+ * Refuses rather than falling back when a passphrase is configured but not
+ * supplied for this session.
+ */
 const getEncryptionKey = (): string => {
-  return sessionKey ?? getFallbackKey()
+  if (sessionKey) return sessionKey
+
+  if (isPassphraseConfigured()) {
+    throw new VaultLockedError()
+  }
+
+  return getFallbackKey()
 }
 
 /**
@@ -142,6 +172,23 @@ export const removePassphrase = (): void => {
 }
 
 /**
+ * Run `write` with passphrase mode still active, and only drop the salt and
+ * verifier once it has succeeded.
+ *
+ * Destroying them first would be unrecoverable: the salt is the only way to
+ * re-derive the key, so a write that fails part-way (a storage quota error,
+ * say) would leave passphrase-encrypted ciphertext that the correct
+ * passphrase can no longer open.
+ */
+export const removePassphraseAfter = (write: () => void): void => {
+  // `write` is expected to encrypt under the fallback key explicitly
+  // (see `encryptObjectWithFallbackKey`), so no global key state is disturbed
+  // and a throw leaves passphrase mode exactly as it was.
+  write()
+  removePassphrase()
+}
+
+/**
  * Forget the derived key without disabling passphrase mode. The passphrase is
  * required again before stored credentials can be read.
  */
@@ -171,4 +218,15 @@ export const encryptObject = <T>(obj: T): string => {
 export const decryptObject = <T>(encryptedData: string): T => {
   const decrypted = decrypt(encryptedData)
   return JSON.parse(decrypted) as T
+}
+
+/**
+ * Encrypt under the stored random key, whatever the session key is.
+ *
+ * Used when leaving passphrase mode: the data has to land under the key that
+ * will still be available afterwards, and it must do so *before* the salt is
+ * discarded.
+ */
+export const encryptObjectWithFallbackKey = <T>(obj: T): string => {
+  return CryptoJS.AES.encrypt(JSON.stringify(obj), getFallbackKey()).toString()
 }

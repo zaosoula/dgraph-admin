@@ -4,7 +4,7 @@ import { useConnectionsStore } from '@/stores/connections'
 import { useCredentialStorage } from '@/composables/useCredentialStorage'
 import { useConnectionExportImport } from '@/composables/useConnectionExportImport'
 import { useToast } from '@/components/ui/toast'
-import type { ConnectionImportResult } from '@/composables/useConnectionExportImport'
+import type { ConnectionImportResult, ConnectionExportResult } from '@/composables/useConnectionExportImport'
 import { Plus, Download, Upload } from 'lucide-vue-next'
 
 useHead({
@@ -119,30 +119,41 @@ const handleExportOpenChange = (open: boolean) => {
   }
 }
 
-const handleExportConnection = (id: string) => {
-  const name = connectionsStore.connections.find(conn => conn.id === id)?.name
-  exportConnection(id, { includeCredentials: exportIncludeCredentials.value })
-  const withCredentials = exportIncludeCredentials.value
-  closeExportMenu()
+/**
+ * Report what the export actually produced. The warning is driven by whether
+ * credentials reached the file, not by what the checkbox asked for.
+ */
+const reportExport = (result: ConnectionExportResult, label: string) => {
+  if (!result.ok) {
+    if (result.reason === 'locked') {
+      toast.danger('Export failed', 'Credentials are locked. Unlock them below before exporting.')
+    } else if (result.reason === 'empty') {
+      toast.info('Nothing to export', 'Add a connection first.')
+    } else {
+      toast.danger('Export failed', 'That connection no longer exists.')
+    }
+    return
+  }
+
   toast.info(
-    `Exported ${name ?? 'connection'}`,
-    withCredentials
+    `Exported ${label}`,
+    result.includedCredentials
       ? 'The file contains credentials in plaintext. Delete it once imported.'
       : 'Credentials were left out of the file.'
   )
 }
 
-const handleExportAllConnections = () => {
-  const count = connectionsStore.connections.length
-  exportAllConnections({ includeCredentials: exportIncludeCredentials.value })
-  const withCredentials = exportIncludeCredentials.value
+const handleExportConnection = (id: string) => {
+  const name = connectionsStore.connections.find(conn => conn.id === id)?.name
+  const result = exportConnection(id, { includeCredentials: exportIncludeCredentials.value })
   closeExportMenu()
-  toast.info(
-    `Exported ${count} connections`,
-    withCredentials
-      ? 'The file contains credentials in plaintext. Delete it once imported.'
-      : 'Credentials were left out of the file.'
-  )
+  reportExport(result, name ?? 'connection')
+}
+
+const handleExportAllConnections = () => {
+  const result = exportAllConnections({ includeCredentials: exportIncludeCredentials.value })
+  closeExportMenu()
+  reportExport(result, `${result.ok ? result.count : 0} connections`)
 }
 
 // Handle form actions

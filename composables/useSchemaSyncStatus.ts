@@ -105,19 +105,10 @@ export const useSchemaSyncStatus = () => {
         status.lastChecked = new Date()
         status.error = null
 
-        // Log activity
-        addActivity({
-          type: 'schema_comparison',
-          action: comparisonResult.hasDifferences 
-            ? 'Schema differences detected' 
-            : 'Schemas are in sync',
-          connectionName: connection.name,
-          connectionId: connection.id,
-          status: comparisonResult.hasDifferences ? 'warning' : 'success',
-          details: comparisonResult.hasDifferences 
-            ? `${comparisonResult.differences?.length || 0} differences found`
-            : 'Development and production schemas match'
-        })
+        // No activity logged here: `compareSchemas` already recorded this exact
+        // comparison. Logging again wrote two rows per check, and with the
+        // history now a shared store that burned the 25-entry cap on
+        // duplicates and evicted real history.
       } else {
         status.error = 'Failed to compare schemas'
         status.hasDifferences = null

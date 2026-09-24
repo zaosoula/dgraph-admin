@@ -424,7 +424,9 @@ export const useSchemaPromotion = () => {
 
       // A rollback moves one side of the pair; re-compare rather than assume.
       const { useSchemaSyncStatus } = await import('@/composables/useSchemaSyncStatus')
-      useSchemaSyncStatus().refreshForConnection(connection.id)
+      useSchemaSyncStatus().refreshForConnection(connection.id).catch((error) => {
+        console.error('Failed to refresh schema sync status after rollback:', error)
+      })
 
       return { success: true, backupSchema }
     } catch (error) {
