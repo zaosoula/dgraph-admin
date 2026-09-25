@@ -296,19 +296,6 @@ export const useSchemaSyncStatus = () => {
     return { checked: stale.length }
   }
 
-  // Clear sync status for a connection
-  const clearSyncStatus = (connectionId: string) => {
-    if (syncStatuses.value[connectionId]) {
-      const { [connectionId]: _removed, ...remaining } = syncStatuses.value
-      syncStatuses.value = remaining
-    }
-  }
-
-  // Clear all sync statuses
-  const clearAllSyncStatuses = () => {
-    syncStatuses.value = {}
-  }
-
   // Get summary statistics
   const syncSummary = computed(() => {
     const total = promotableConnections.value.length
@@ -339,12 +326,9 @@ export const useSchemaSyncStatus = () => {
     syncSummary,
     checkSyncStatus,
     checkAllSyncStatuses,
-    invalidateForConnection,
     refreshForConnection,
     markPairSynced,
-    ensureFreshStatuses,
-    clearSyncStatus,
-    clearAllSyncStatuses
+    ensureFreshStatuses
   }
 }
 
