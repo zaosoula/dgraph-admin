@@ -253,8 +253,8 @@ export const useConnectionExportImport = () => {
 
           // Write credentials on both the create and the update path, so
           // re-importing a file with a rotated token actually refreshes it.
-          if (carriesSecrets(credentials)) {
-            credentialStorage.saveCredentials(targetId, credentials)
+          if (carriesSecrets(credentials) && !credentialStorage.saveCredentials(targetId, credentials)) {
+            result.errors.push(`Connection "${connection.name}" was imported, but its credentials could not be stored. Re-enter them before connecting.`)
           }
 
           result.importedCount++
