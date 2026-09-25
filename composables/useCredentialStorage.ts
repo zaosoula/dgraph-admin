@@ -59,28 +59,47 @@ export const useCredentialStorage = () => {
     }
   }
   
-  // Get credentials for a connection
+  // Decrypt one storage blob. Returns null when nothing is stored, and throws
+  // when a blob exists but cannot be read, so callers can tell "no credentials"
+  // apart from "credentials present but unreadable".
+  const readAll = (raw: string | null): Record<string, ConnectionCredentials> | null => {
+    if (!raw) return null
+
+    try {
+      return decryptObject<Record<string, ConnectionCredentials>>(raw)
+    } catch {
+      throw new Error(
+        'Stored credentials could not be read: the browser key that protects them is missing or has changed.'
+      )
+    }
+  }
+
+  /**
+   * Credentials for a connection, or null when none are stored.
+   *
+   * Throws when a stored blob cannot be decrypted. Callers that send requests
+   * must use this variant: falling back to an empty credential block would put
+   * unauthenticated traffic on the wire.
+   */
+  const getCredentialsStrict = (connectionId: string): ConnectionCredentials | null => {
+    const persistent = readAll(localStorage.getItem(storageKey))
+    if (persistent?.[connectionId]) {
+      return persistent[connectionId]
+    }
+
+    const session = readAll(sessionStorage.getItem(sessionStorageKey))
+    if (session?.[connectionId]) {
+      return session[connectionId]
+    }
+
+    return null
+  }
+
+  // Forgiving variant for UI paths that can carry on without credentials
+  // (pre-filling the edit form, building an export copy).
   const getCredentials = (connectionId: string): ConnectionCredentials | null => {
     try {
-      // Try persistent storage first
-      const persistentData = localStorage.getItem(storageKey)
-      if (persistentData) {
-        const allCredentials = decryptObject<Record<string, ConnectionCredentials>>(persistentData)
-        if (allCredentials[connectionId]) {
-          return allCredentials[connectionId]
-        }
-      }
-      
-      // Try session storage next
-      const sessionData = sessionStorage.getItem(sessionStorageKey)
-      if (sessionData) {
-        const allCredentials = decryptObject<Record<string, ConnectionCredentials>>(sessionData)
-        if (allCredentials[connectionId]) {
-          return allCredentials[connectionId]
-        }
-      }
-      
-      return null
+      return getCredentialsStrict(connectionId)
     } catch (error) {
       console.error('Failed to get credentials:', error)
       return null
@@ -133,6 +152,7 @@ export const useCredentialStorage = () => {
     setPersistence,
     saveCredentials,
     getCredentials,
+    getCredentialsStrict,
     deleteCredentials,
     clearAllCredentials
   }
