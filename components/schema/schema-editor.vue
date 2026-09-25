@@ -8,20 +8,22 @@ import { editorTheme } from './editor-theme'
 import { useToast } from '@/components/ui/toast'
 
 const props = defineProps<{
-  initialSchema?: string
   readOnly?: boolean
 }>()
 
 const emit = defineEmits<{
-  'update:schema': [schema: string]
   'save': [schema: string]
 }>()
+
+// The document is owned by the parent through `v-model:schema`, so loading a
+// saved version or applying one replaces what the editor shows instead of
+// leaving the two out of step.
+const schema = defineModel<string>('schema', { default: '' })
 
 const connectionsStore = useConnectionsStore()
 const dgraphClient = useDgraphClient()
 const toast = useToast()
 
-const schema = ref(props.initialSchema || '')
 const originalSchema = ref('') // Store the original schema from the server
 const isLoading = ref(false)
 const error = ref<string | null>(null)
@@ -32,10 +34,7 @@ const showConfirmDialog = ref(false)
 // `schema` is the single source of truth: it backs the v-model below and feeds the parser.
 const { extensions: baseExtensions } = useCodeMirror(schema, {
   readOnly: props.readOnly,
-  enableReferenceLinks: true,
-  onChange: (newValue) => {
-    emit('update:schema', newValue)
-  }
+  enableReferenceLinks: true
 })
 
 // The editor wears the app's tokens rather than CodeMirror's light-only default
@@ -92,7 +91,6 @@ const loadSchema = async () => {
     if (result.data) {
       schema.value = result.data.schema
       originalSchema.value = result.data.schema // Store the original schema
-      emit('update:schema', schema.value)
     }
   } catch (err) {
     error.value = err instanceof Error ? err.message : String(err)
@@ -179,6 +177,11 @@ const cancelSave = () => {
   showConfirmDialog.value = false
 }
 
+// The parent writes to the database on its own (applying a saved version), and
+// the editor's "changes" indicator compares against what the server last
+// returned, so it needs a way to resynchronise.
+defineExpose({ reload: loadSchema })
+
 // Toggle diff view
 const toggleDiff = () => {
   showDiff.value = !showDiff.value
@@ -188,13 +191,6 @@ const toggleDiff = () => {
 watch(() => connectionsStore.activeConnectionId, (newId) => {
   if (newId) {
     loadSchema()
-  }
-})
-
-// Watch for initialSchema changes
-watch(() => props.initialSchema, (newSchema) => {
-  if (newSchema !== undefined && newSchema !== schema.value) {
-    schema.value = newSchema
   }
 })
 

@@ -13,6 +13,8 @@ useHead({
   ]
 })
 
+const schemaEditor = ref<{ reload: () => Promise<void> } | null>(null)
+
 const connectionsStore = useConnectionsStore()
 const schemaHistoryStore = useSchemaHistoryStore()
 const dgraphClient = useDgraphClient()
@@ -74,11 +76,6 @@ const saveToHistory = () => {
   } else {
     toast.success('Schema version saved')
   }
-}
-
-// Handle schema update
-const handleSchemaUpdate = (schema: string) => {
-  currentSchema.value = schema
 }
 
 // Handle schema save
@@ -143,6 +140,10 @@ const applySelectedVersion = async () => {
         applyError.value = result.error.message
         toast.danger('Could not apply the version', result.error.message)
       } else {
+        // The live schema moved under the editor, so let it re-read the server
+        // rather than keep comparing against the pre-apply text.
+        await schemaEditor.value?.reload()
+
         toast.success(
           'Version applied',
           targetName ? `${targetName} is now running this schema.` : undefined
@@ -261,19 +262,17 @@ const applySelectedVersion = async () => {
     >
       <!-- Editor / diagram / diff -->
       <div class="min-w-0 rounded-lg border border-border bg-card p-3">
-        <div v-if="activeTab === 'editor'" class="h-[620px]">
-          <SchemaEditor
-            v-model:schema="currentSchema"
-            @update:schema="handleSchemaUpdate"
-            @save="handleSchemaSave"
-          />
+        <!-- Kept mounted: unmounting the editor would drop unsaved edits and
+             refetch the live schema on the way back. -->
+        <div v-show="activeTab === 'editor'" class="h-[620px]">
+          <SchemaEditor ref="schemaEditor" v-model:schema="currentSchema" @save="handleSchemaSave" />
         </div>
 
-        <div v-else-if="activeTab === 'diagram'" class="h-[620px]">
+        <div v-if="activeTab === 'diagram'" class="h-[620px]">
           <SchemaDiagram :schema="currentSchema" />
         </div>
 
-        <div v-else-if="activeTab === 'diff' && selectedVersionId" class="h-[620px]">
+        <div v-if="activeTab === 'diff' && selectedVersionId" class="h-[620px]">
           <SchemaDiff :original-schema="originalSchema" :new-schema="currentSchema" />
         </div>
       </div>
