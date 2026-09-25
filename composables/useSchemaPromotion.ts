@@ -300,8 +300,17 @@ export const useSchemaPromotion = () => {
       
       const devSchema = devSchemaResult.data?.schema || ''
       
-      // Get current production schema for backup
+      // Get current production schema for backup. Without it the write has no
+      // rollback point, so refuse rather than overwrite production blind.
       const prodSchemaResult = await prodClient.getSchema()
+
+      if (prodSchemaResult.error) {
+        return {
+          success: false,
+          error: `Failed to read the current production schema, so no rollback point could be taken: ${prodSchemaResult.error.message}`
+        }
+      }
+
       const backupSchema = prodSchemaResult.data?.schema || ''
       
       // Update production schema with dev schema
