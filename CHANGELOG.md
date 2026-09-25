@@ -1,6 +1,41 @@
 # Changelog
 
 
+## v0.0.6
+
+[compare changes](https://github.com/zaosoula/dgraph-admin/compare/v0.0.5...v0.0.6)
+
+### 🚀 Enhancements
+
+- **activity:** Persist the activity feed ([a9a62f0](https://github.com/zaosoula/dgraph-admin/commit/a9a62f0))
+
+### 🩹 Fixes
+
+- **diagram:** Strip directives with nested parens ([d6eaf24](https://github.com/zaosoula/dgraph-admin/commit/d6eaf24))
+- **diagram:** Tear down resize listener and simulation ([604b674](https://github.com/zaosoula/dgraph-admin/commit/604b674))
+- **credentials:** Report an unreadable credential store ([3a44935](https://github.com/zaosoula/dgraph-admin/commit/3a44935))
+- **client:** Stop sending unauthenticated requests ([31f3f67](https://github.com/zaosoula/dgraph-admin/commit/31f3f67))
+- **connections:** Test the credentials typed in the form ([9278fb4](https://github.com/zaosoula/dgraph-admin/commit/9278fb4))
+- **schema:** Give the editor one document ([801094e](https://github.com/zaosoula/dgraph-admin/commit/801094e))
+- **promotion:** Refuse to promote without a backup ([63fc4f5](https://github.com/zaosoula/dgraph-admin/commit/63fc4f5))
+- **import:** Report credentials that could not be stored ([6a9f035](https://github.com/zaosoula/dgraph-admin/commit/6a9f035))
+
+### 💅 Refactors
+
+- **sync:** Drop unused clear helpers ([15123bf](https://github.com/zaosoula/dgraph-admin/commit/15123bf))
+
+### 📖 Documentation
+
+- Note that Windows needs WSL ([058e6ed](https://github.com/zaosoula/dgraph-admin/commit/058e6ed))
+
+### 🤖 CI
+
+- Run lint ([bd0f624](https://github.com/zaosoula/dgraph-admin/commit/bd0f624))
+
+### ❤️ Contributors
+
+- Zao Soula ([@zaosoula](https://github.com/zaosoula))
+
 ## v0.0.5
 
 [compare changes](https://github.com/zaosoula/dgraph-admin/compare/v0.0.4...v0.0.5)
