@@ -1,5 +1,5 @@
 <script setup lang="ts">
-import { ref, onMounted, watch, nextTick } from 'vue'
+import { ref, onMounted, onUnmounted, watch, nextTick } from 'vue'
 import { buildSchema } from 'graphql'
 import { useDgraphClient } from '@/composables/useDgraphClient'
 import { useConnectionsStore } from '@/stores/connections'
@@ -16,6 +16,11 @@ const isLoading = ref(false)
 const error = ref<string | null>(null)
 const schemaText = ref<string>('')
 const containerRef = ref<HTMLDivElement | null>(null)
+
+// The running layout and the deferred first render, kept so both can be torn
+// down when the component goes away instead of ticking against detached nodes.
+let activeSimulation: d3.Simulation<GraphNode, GraphLink> | null = null
+let initialRenderTimeout: ReturnType<typeof setTimeout> | null = null
 
 // Graph data structure.
 //
@@ -333,6 +338,9 @@ const renderGraph = (data: GraphData) => {
     // Create container for the graph
     const g = svg.append('g')
     
+    // A previous render may still be settling; stop it before starting another
+    activeSimulation?.stop()
+
     // Improved force simulation with better parameters
     const simulation = d3.forceSimulation<GraphNode>(data.nodes)
       .force('link', d3.forceLink<GraphNode, GraphLink>(data.links)
@@ -344,6 +352,8 @@ const renderGraph = (data: GraphData) => {
       .force('collision', d3.forceCollide().radius(100)) // Larger collision radius
       .force('x', d3.forceX(width / 2).strength(0.05)) // Gentle force toward center x
       .force('y', d3.forceY(height / 2).strength(0.05)) // Gentle force toward center y
+
+    activeSimulation = simulation
     
     // Create links with improved styling
     const link = g.append('g')
@@ -649,21 +659,36 @@ watch(() => props.schema, (newSchema) => {
   }
 })
 
+// Re-lay the graph out for the new container width
+const handleResize = () => {
+  if (schemaText.value) {
+    processSchema()
+  }
+}
+
 // Initialize
 onMounted(() => {
   if (connectionsStore.activeConnectionId || props.schema) {
     // Add a small delay to ensure the container is properly rendered
-    setTimeout(() => {
+    initialRenderTimeout = setTimeout(() => {
+      initialRenderTimeout = null
       loadSchema()
     }, 500)
   }
-  
-  // Handle window resize
-  window.addEventListener('resize', () => {
-    if (schemaText.value) {
-      processSchema()
-    }
-  })
+
+  window.addEventListener('resize', handleResize)
+})
+
+onUnmounted(() => {
+  window.removeEventListener('resize', handleResize)
+
+  if (initialRenderTimeout !== null) {
+    clearTimeout(initialRenderTimeout)
+    initialRenderTimeout = null
+  }
+
+  activeSimulation?.stop()
+  activeSimulation = null
 })
 </script>
 
