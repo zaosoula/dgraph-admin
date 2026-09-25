@@ -56,26 +56,95 @@ const dgraphScalarTypes = [
   'MultiPolygon'
 ]
 
-// A more direct approach: strip out all directives from the schema before parsing
+// Index just past the string literal starting at `start` (block strings included)
+const skipString = (input: string, start: number): number => {
+  const isBlock = input.startsWith('"""', start)
+  const quote = isBlock ? '"""' : '"'
+  let i = start + quote.length
+
+  while (i < input.length) {
+    if (!isBlock && input[i] === '\\') {
+      i += 2
+      continue
+    }
+
+    if (input.startsWith(quote, i)) {
+      return i + quote.length
+    }
+
+    i++
+  }
+
+  return input.length
+}
+
+// Index just past the argument list starting at `start` (which must be a `(`).
+// Parentheses are counted, and those inside string literals are ignored, so an
+// `@auth` rule carrying a whole query survives being skipped over.
+const skipArgumentList = (input: string, start: number): number => {
+  let depth = 0
+  let i = start
+
+  while (i < input.length) {
+    const char = input[i]
+
+    if (char === '"') {
+      i = skipString(input, i)
+      continue
+    }
+
+    if (char === '(') {
+      depth++
+    } else if (char === ')') {
+      depth--
+      if (depth === 0) return i + 1
+    }
+
+    i++
+  }
+
+  return input.length
+}
+
+// Remove every directive usage before parsing, so the diagram does not need
+// Dgraph's directive definitions to build the schema.
 const stripDirectives = (schema: string): string => {
   try {
-    // Add scalar type definitions
-    let processedSchema = schema
-    
-    // Add scalar definitions
-    let scalarDefinitions = ''
-    dgraphScalarTypes.forEach(scalar => {
-      scalarDefinitions += `scalar ${scalar}\n`
-    })
-    
-    // Remove all directive declarations and usages
-    // This regex removes @directive(...) patterns
-    processedSchema = processedSchema.replace(/@\w+(\([^)]*\))?/g, '')
-    
-    // Add scalar definitions at the beginning
-    processedSchema = scalarDefinitions + processedSchema
-    
-    return processedSchema
+    const scalarDefinitions = dgraphScalarTypes.map(scalar => `scalar ${scalar}`).join('\n') + '\n'
+
+    let processed = ''
+    let i = 0
+
+    while (i < schema.length) {
+      const char = schema[i]
+
+      // Keep string literals verbatim: an `@` or a bracket inside one is data
+      if (char === '"') {
+        const end = skipString(schema, i)
+        processed += schema.slice(i, end)
+        i = end
+        continue
+      }
+
+      if (char === '@' && /[_A-Za-z]/.test(schema[i + 1] ?? '')) {
+        i++
+        while (i < schema.length && /[_0-9A-Za-z]/.test(schema[i]!)) i++
+
+        let next = i
+        while (next < schema.length && /\s/.test(schema[next]!)) next++
+
+        if (schema[next] === '(') {
+          i = skipArgumentList(schema, next)
+        }
+
+        continue
+      }
+
+      processed += char
+      i++
+    }
+
+    return scalarDefinitions + processed
   } catch (err) {
     console.error('Error preprocessing schema:', err)
     return schema
