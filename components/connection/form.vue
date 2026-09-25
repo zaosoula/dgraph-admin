@@ -255,14 +255,21 @@ const testConnection = async () => {
       updatedAt: new Date(),
     };
 
-    const detailedResults =
-      await dgraphClient.testConnectionDetailed(tempConnection);
+    // The form holds the credentials to test, so the stored copy must not be
+    // resolved on top of them: a rotated token would otherwise be tested as
+    // the old one.
+    const detailedResults = await dgraphClient.testConnectionDetailed(
+      tempConnection,
+      { useStoredCredentials: false }
+    );
 
     if (detailedResults) {
       testResult.value = detailedResults;
     } else {
       // Fallback to basic test if detailed test fails
-      const isConnected = await dgraphClient.testConnection(tempConnection);
+      const isConnected = await dgraphClient.testConnection(tempConnection, {
+        useStoredCredentials: false,
+      });
       testResult.value = {
         adminHealth: {
           success: isConnected,
