@@ -1,22 +1,36 @@
-import { ref, computed, watch } from 'vue'
+import { ref, watch } from 'vue'
 import { useConnectionsStore } from '@/stores/connections'
 import { useCredentialStorage } from '@/composables/useCredentialStorage'
 import { DgraphClient } from '@/utils/dgraph-client'
 import type { Connection, ConnectionTestResult } from '@/types/connection'
+
+export type ClientOptions = {
+  /**
+   * Resolve credentials from storage for secure connections. Pass false when
+   * the caller already holds the credentials to use — a connection form
+   * testing what the user just typed, for instance — so the stored copy does
+   * not silently win over them.
+   */
+  useStoredCredentials?: boolean
+}
 
 /**
  * Build a DgraphClient aimed at a specific connection, resolving stored
  * credentials when the connection is secure. Safe to call outside of a
  * component setup: it registers no reactive effects.
  */
-export const createClientForConnection = (connection: Connection): DgraphClient => {
-  const { getCredentials } = useCredentialStorage()
+export const createClientForConnection = (
+  connection: Connection,
+  options: ClientOptions = {}
+): DgraphClient => {
+  const { useStoredCredentials = true } = options
+  const { getCredentialsStrict } = useCredentialStorage()
 
-  if (connection.isSecure) {
-    // Deliberately not caught: a locked vault must surface as "unlock to
-    // continue", never as a client that sends the connection's empty
-    // placeholder credentials and fails with an opaque auth error.
-    const storedCredentials = getCredentials(connection.id)
+  if (connection.isSecure && useStoredCredentials) {
+    // Deliberately not caught: an unreadable vault must surface as an error,
+    // never as a client that sends the connection's empty placeholder
+    // credentials and fails with an opaque auth error.
+    const storedCredentials = getCredentialsStrict(connection.id)
 
     if (storedCredentials) {
       return new DgraphClient({
@@ -33,7 +47,6 @@ export const useDgraphClient = () => {
   const connectionsStore = useConnectionsStore()
   
   const client = ref<DgraphClient | null>(null)
-  const isInitialized = computed(() => client.value !== null)
   
   // Watch for active connection changes and invalidate the cached client
   watch(() => connectionsStore.activeConnectionId, (newConnectionId, oldConnectionId) => {
@@ -62,7 +75,7 @@ export const useDgraphClient = () => {
   }
   
   // Test the connection
-  const testConnection = async (connection?: Connection) => {
+  const testConnection = async (connection?: Connection, options: ClientOptions = {}) => {
     const connectionToTest = connection || connectionsStore.activeConnection
     
     if (!connectionToTest) {
@@ -78,7 +91,7 @@ export const useDgraphClient = () => {
     })
     
     try {
-      const testClient = createClientForConnection(connectionToTest)
+      const testClient = createClientForConnection(connectionToTest, options)
       const testResults = await testClient.testConnection()
       
       // Update connection state with detailed results
@@ -223,7 +236,7 @@ export const useDgraphClient = () => {
   }
   
   // Test connection with detailed results
-  const testConnectionDetailed = async (connection?: Connection) => {
+  const testConnectionDetailed = async (connection?: Connection, options: ClientOptions = {}) => {
     const connectionToTest = connection || connectionsStore.activeConnection
     
     if (!connectionToTest) {
@@ -232,7 +245,7 @@ export const useDgraphClient = () => {
     }
     
     try {
-      const testClient = createClientForConnection(connectionToTest)
+      const testClient = createClientForConnection(connectionToTest, options)
       return await testClient.testConnection()
     } catch (error) {
       console.error('Detailed connection test failed:', error)
@@ -242,7 +255,6 @@ export const useDgraphClient = () => {
 
   return {
     client,
-    isInitialized,
     initializeClient,
     testConnection,
     testConnectionDetailed,
