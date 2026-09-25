@@ -28,6 +28,10 @@ A web-based admin interface for managing Dgraph instances.
 
 - Node.js (v16 or later)
 - npm, yarn, or pnpm
+- macOS or Linux. `.yarnrc.yml` pins `supportedArchitectures` to darwin and
+  linux so the vendored `.yarn/cache` stays small, which means Windows native
+  binaries (rollup, lightningcss, oxide, …) are not resolved. On Windows, use
+  WSL.
 
 ### Installation
 
