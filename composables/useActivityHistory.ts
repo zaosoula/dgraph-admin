@@ -1,10 +1,5 @@
 import { computed } from 'vue'
-import {
-  useActivityStore,
-  formatRelativeTime,
-  getActivityIcon,
-  getActivityColor
-} from '@/stores/activity'
+import { useActivityStore, formatRelativeTime } from '@/stores/activity'
 import type { Activity, ActivityStatus, ActivityType } from '@/stores/activity'
 
 export type { Activity, ActivityStatus, ActivityType }
@@ -23,13 +18,7 @@ export const useActivityHistory = () => {
     activities: computed(() => store.activities),
     addActivity: store.addActivity,
     getRecentActivities: computed(() => store.getRecentActivities),
-    getActivitiesByType: computed(() => store.getActivitiesByType),
-    getActivitiesByConnection: computed(() => store.getActivitiesByConnection),
-    getActivitiesByStatus: computed(() => store.getActivitiesByStatus),
     clearActivities: store.clearActivities,
-    activityCounts: computed(() => store.activityCounts),
-    formatRelativeTime,
-    getActivityIcon,
-    getActivityColor
+    formatRelativeTime
   }
 }
